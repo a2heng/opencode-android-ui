@@ -5,6 +5,40 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// ---------------------------------------------------------------------------
+// 版本：只用语义化版本，不要日期序号。
+//   本地默认 0.1.3 / 103；CI 从 tag（v0.1.3）推导后通过 -PomVersionName/-PomVersionCode 传入。
+//   versionCode = major*10000 + minor*100 + patch（0.1.3 → 103），保证单调递增。
+// ---------------------------------------------------------------------------
+fun envValue(name: String): String? = System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+
+val omVersionName: String =
+    (findProperty("omVersionName") as String?) ?: envValue("OM_VERSION_NAME") ?: "0.1.3"
+val omVersionCode: Int =
+    ((findProperty("omVersionCode") as String?) ?: envValue("OM_VERSION_CODE") ?: "103").toInt()
+
+// ---------------------------------------------------------------------------
+// release 签名：凭据一律走环境变量，keystore 放在仓库外。
+//   OM_KEYSTORE    keystore 绝对路径（CI 里 base64 还原到 $RUNNER_TEMP）
+//   OM_KEY_ALIAS   密钥别名
+//   OM_KEY_PASS    store/key 共用口令
+//   OM_REQUIRE_SIGNING=1 时缺凭据直接失败（CI 发版必须签名）
+// ---------------------------------------------------------------------------
+val omStoreFile = envValue("OM_KEYSTORE")
+val omKeyAlias = envValue("OM_KEY_ALIAS")
+val omKeyPass = envValue("OM_KEY_PASS")
+val omHasSigning = listOf(omStoreFile, omKeyAlias, omKeyPass).all { it != null }
+val omRequireSigning = envValue("OM_REQUIRE_SIGNING") == "1"
+
+if (omRequireSigning && !omHasSigning) {
+    val missing = listOf(
+        "OM_KEYSTORE" to omStoreFile,
+        "OM_KEY_ALIAS" to omKeyAlias,
+        "OM_KEY_PASS" to omKeyPass,
+    ).filter { it.second == null }.map { it.first }
+    throw GradleException("缺签名凭据：${missing.joinToString()}（CI 发版不允许未签名 release）")
+}
+
 android {
     namespace = "com.a2heng.opencode.mobile"
     compileSdk = 34
@@ -13,14 +47,32 @@ android {
         applicationId = "com.a2heng.opencode.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = omVersionCode
+        versionName = omVersionName
+    }
+
+    signingConfigs {
+        if (omHasSigning) {
+            create("release") {
+                storeFile = rootProject.file(omStoreFile!!)
+                keyAlias = omKeyAlias
+                storePassword = omKeyPass
+                keyPassword = omKeyPass
+                // minSdk 26 → 不需要 v1；v2/v3 显式打开
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (omHasSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -48,6 +100,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")

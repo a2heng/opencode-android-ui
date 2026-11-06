@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: opencode 官方文档
+    url: https://opencode.ai/docs/
+    about: 服务端 / API / 配置的问题先看官方文档

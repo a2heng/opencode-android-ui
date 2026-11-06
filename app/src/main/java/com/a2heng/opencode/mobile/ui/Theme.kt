@@ -1,32 +1,45 @@
 package com.a2heng.opencode.mobile.ui
 
 import android.app.Activity
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-val Accent = Color(0xFF4CC38A)
-val AccentDim = Color(0xFF2E7D57)
-val Sky = Color(0xFF7DD3FC)
-val Warn = Color(0xFFF5A524)
-val Danger = Color(0xFFF0616D)
+// ---------------------------------------------------------------------------
+// 默认是黑白灰（不抢内容），主题色可在设置里换成 Material You 或预设色。
+// 注意：命中率/状态的颜色是语义色（绿=好、红=差），不随主题变。
+// ---------------------------------------------------------------------------
 
-private val DarkColors = darkColorScheme(
-    primary = Accent,
-    onPrimary = Color(0xFF06281B),
-    primaryContainer = Color(0xFF143A2B),
-    onPrimaryContainer = Color(0xFFB7F5D6),
-    secondary = Sky,
-    onSecondary = Color(0xFF04202C),
-    tertiary = Warn,
+val Accent = Color(0xFF8FA3B8)
+val Sky = Color(0xFF7DCFFF)
+val Warn = Color(0xFFE0AF68)
+val Danger = Color(0xFFF07178)
+
+private val MonoDark = darkColorScheme(
+    primary = Color(0xFFE8EBEF),
+    onPrimary = Color(0xFF0B0D10),
+    primaryContainer = Color(0xFF272C33),
+    onPrimaryContainer = Color(0xFFE6E8EC),
+    secondary = Color(0xFFB6BCC6),
+    onSecondary = Color(0xFF14181D),
+    secondaryContainer = Color(0xFF232830),
+    onSecondaryContainer = Color(0xFFDCE0E6),
+    tertiary = Color(0xFF9DA5B1),
+    onTertiary = Color(0xFF14181D),
     background = Color(0xFF0E1116),
     onBackground = Color(0xFFE6EAF0),
     surface = Color(0xFF141A21),
@@ -37,14 +50,17 @@ private val DarkColors = darkColorScheme(
     error = Danger,
 )
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF1F8A5B),
+private val MonoLight = lightColorScheme(
+    primary = Color(0xFF23272E),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD2F5E4),
-    onPrimaryContainer = Color(0xFF06301E),
-    secondary = Color(0xFF1D7FA6),
+    primaryContainer = Color(0xFFE7E9ED),
+    onPrimaryContainer = Color(0xFF1A1D21),
+    secondary = Color(0xFF5B6068),
     onSecondary = Color.White,
-    tertiary = Color(0xFF9A6400),
+    secondaryContainer = Color(0xFFE3E5E9),
+    onSecondaryContainer = Color(0xFF23272E),
+    tertiary = Color(0xFF7A8089),
+    onTertiary = Color.White,
     background = Color(0xFFF6F7F9),
     onBackground = Color(0xFF14181D),
     surface = Color(0xFFFFFFFF),
@@ -53,6 +69,47 @@ private val LightColors = lightColorScheme(
     onSurfaceVariant = Color(0xFF5B6572),
     outline = Color(0xFFC7CDD6),
     error = Color(0xFFC0323D),
+)
+
+private val DarkAccents = mapOf(
+    "blue" to Color(0xFF7AA2F7),
+    "purple" to Color(0xFFBB9AF7),
+    "orange" to Color(0xFFE0AF68),
+    "cyan" to Color(0xFF7DCFFF),
+)
+private val LightAccents = mapOf(
+    "blue" to Color(0xFF2E5AAC),
+    "purple" to Color(0xFF6E4BB8),
+    "orange" to Color(0xFFA15C00),
+    "cyan" to Color(0xFF1B6E84),
+)
+
+fun themePresetKeys(): List<String> = listOf("mono", "dynamic", "blue", "purple", "orange", "cyan")
+
+fun themePresetLabel(key: String): String = when (key) {
+    "mono" -> "黑白灰（默认）"
+    "dynamic" -> "跟随系统取色（Android 12+）"
+    "blue" -> "蓝色"
+    "purple" -> "紫色"
+    "orange" -> "橙色"
+    "cyan" -> "青色"
+    else -> key
+}
+
+private fun darkPreset(accent: Color): ColorScheme = MonoDark.copy(
+    primary = accent,
+    onPrimary = Color(0xFF0B0D10),
+    primaryContainer = lerp(Color(0xFF14181D), accent, 0.24f),
+    onPrimaryContainer = lerp(accent, Color.White, 0.55f),
+    secondary = lerp(accent, Color.White, 0.35f),
+)
+
+private fun lightPreset(accent: Color): ColorScheme = MonoLight.copy(
+    primary = accent,
+    onPrimary = Color.White,
+    primaryContainer = lerp(Color.White, accent, 0.16f),
+    onPrimaryContainer = lerp(accent, Color.Black, 0.35f),
+    secondary = lerp(accent, Color.Black, 0.25f),
 )
 
 fun rateColor(rate: Double, dark: Boolean): Color = when {
@@ -65,9 +122,15 @@ fun rateColor(rate: Double, dark: Boolean): Color = when {
 }
 
 @Composable
-fun OcTheme(content: @Composable () -> Unit) {
+fun OcTheme(themeMode: String = "mono", content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    val colors = if (dark) DarkColors else LightColors
+    val context = LocalContext.current
+    val colors: ColorScheme = when {
+        themeMode == "dynamic" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        dark -> DarkAccents[themeMode]?.let(::darkPreset) ?: MonoDark
+        else -> LightAccents[themeMode]?.let(::lightPreset) ?: MonoLight
+    }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {

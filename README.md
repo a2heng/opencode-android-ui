@@ -1,40 +1,40 @@
 # OpenCode Mobile
 
-局域网 opencode 服务的原生 Android 客户端（Kotlin + Jetpack Compose）。
+[![CI](https://github.com/a2heng/opencode-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/a2heng/opencode-mobile/actions/workflows/ci.yml)
+[![Release](https://github.com/a2heng/opencode-mobile/actions/workflows/release.yml/badge.svg)](https://github.com/a2heng/opencode-mobile/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **当前状态：闭源第一版（v0.1.0），仓库私有。**
-> 前端界面完全自绘，不复用 opencode 的 Web UI；App 直连 `http://<你的电脑>:42000`，
-> 不需要额外的中转服务。
+局域网 [opencode](https://opencode.ai) 的原生 Android 客户端：Kotlin + Jetpack Compose，
+界面完全自绘，**直连** `http://<你的电脑>:42000`，不需要中转服务。
+
+## 安装
+
+1. 从 [Releases](https://github.com/a2heng/opencode-mobile/releases) 下载 `opencode-mobile-x.y.z.apk`（CI 签名）。
+2. Android 8.0+，手机与电脑在同一局域网。
+3. 服务端开放局域网并设置密码：
+
+   ```bash
+   OPENCODE_PASSWORD=你的密码 opencode serve --hostname 0.0.0.0 --port 42000
+   ```
+
+   在 App 里填 `http://<电脑IP>:42000` 与密码即可（Basic 认证，用户名固定 `opencode`）。
 
 ## 功能
 
 | 模块 | 说明 |
 | --- | --- |
-| 会话列表 | 「运行中」独立分区 + 按文件夹分区，可切换「按文件夹 / 按时间」；支持搜索、重命名、删除 |
-| 新建会话 | 选择或新建文件夹（目录浏览器 + 最近使用），在指定目录创建会话 |
-| 聊天 | 历史消息、SSE 流式回答、推理折叠、工具卡片（按工具图标；read 内容；edit 统一 diff 上下渲染；shell 输出；图片直接显示）、轻量 Markdown |
-| 回退 | 长按已发出的用户消息 → opencode revert（可选择是否连文件一起还原） |
-| 运行中发送 | 三种模式（设置或对话右上角）：排队 pending（默认，消息以 pending 气泡显示，可点左侧返回图标撤回编辑）/ 立即插入 steer / 中断后发送 |
-| 显示精细度 | 精简（只留回答，工具压成一行）/ 标准（思考与工具折叠）/ 详细（默认展开 diff 与输出） |
-| 附件 | 输入框可直接选图，压到最长边 1600px 后以 inline base64 发送 |
-| 缓存命中率 | App 内直连聚合最近 20 个会话：总命中率、缓存读取/未命中/写入、花费、最近 40 步柱状图、逐步明细 |
-| 权限确认 | `permission.asked` 弹窗，支持「允许一次 / 总是允许 / 拒绝」 |
-| 表单 | `question` 等结构化输入的表单弹窗（string / number / boolean / multiselect） |
-| 模型 / Agent | 会话内切换模型与 Agent |
-| 文件 | 目录浏览与文本预览（走 `/api/fs/list`、`/api/fs/read`） |
-| 终端 | 列出 / 新建 / 结束 PTY，WebSocket 实时输入输出，附 Ctrl+C、Tab、Esc、方向键 |
-
-## 环境要求
-
-- 手机 Android 8.0+（`minSdk 26`），与电脑在同一局域网。
-- 服务端 opencode **v2**（HTTP API：`/api/*`、`/api/event`），已用 `v2.2.5` 实测。
-- 服务端监听局域网：
-
-  ```bash
-  opencode serve --hostname 0.0.0.0 --port 42000
-  ```
-
-  默认密码来自 `OPENCODE_PASSWORD` 环境变量；App 里填这个密码即可（Basic 认证，用户名固定 `opencode`）。
+| 会话列表 | 「运行中」独立分区；没有运行中的会话时顶部显示最近 3 条；按文件夹分组 / 按时间切换 |
+| 新建会话 | 目录浏览器 + 最近使用 + 新建文件夹，可指定任意目录 |
+| 聊天 | SSE 流式回答、轻量 Markdown、思考过程、工具卡片（按工具图标；read 内容；edit 统一 diff；shell 命令/输出分色块；图片直接显示） |
+| 显示精细度 | **精简**：工具压成一行，点一下用气泡看完整内容；**完整**：全部展开，超长内容限高滚动 |
+| 运行中发送 | 排队 pending（默认，消息以 pending 气泡显示，左侧返回图标可撤回并回填输入框）/ 立即插入 steer / 中断后发送；对话右上角可随时切换 |
+| 回退 | 长按已发出的用户消息 → opencode revert，可选择是否连文件一起还原 |
+| 缓存命中率 | App 内聚合最近 20 个会话：总命中率、缓存读取/未命中/写入、花费、最近 40 步柱状图与逐步明细 |
+| 模型 / Agent | 会话内切换 |
+| 权限 / 表单 | 权限弹窗（一次 / 总是 / 拒绝）；结构化表单弹窗 |
+| 文件 / 终端 | 目录浏览、文本预览；PTY 列表/新建/结束，WebSocket 实时输入输出 |
+| 主题 | 默认黑白灰；可切 Material You 动态取色或蓝/紫/橙/青预设 |
+| 系统集成 | 分享面板直接收文本/图片、Android 12+ 启动画面、预测式返回、主题图标（monochrome）、长按触感反馈 |
 
 ## 构建
 
@@ -42,62 +42,59 @@
 
 ```bash
 ./gradlew assembleDebug
-# 产物：app/build/outputs/apk/debug/app-debug.apk
+# app/build/outputs/apk/debug/app-debug.apk
 ```
 
-安装：
+Release（需要签名凭据，见下节）：
 
 ```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+OM_KEYSTORE=/abs/path/release.jks \
+OM_KEY_ALIAS=opencode-mobile \
+OM_KEY_PASS=****** \
+OM_REQUIRE_SIGNING=1 \
+./gradlew assembleRelease -PomVersionName=0.1.3 -PomVersionCode=103
 ```
 
-如果手机用无线调试：`adb pair <ip>:<pair-port> <code>` 然后 `adb connect <ip>:<connect-port>`。
+## 版本与发版
 
-## 使用
+- **只用语义化版本**，不用日期序号：tag `vX.Y.Z` → `versionName=X.Y.Z`，
+  `versionCode = major*10000 + minor*100 + patch`（`0.1.3` → `103`）。
+- 推 tag `v*` 触发 [Release](.github/workflows/release.yml)：CI 用 Secrets 签名、校验签名、生成 APK + sha256 并创建 GitHub Release。
+- 仓库 Secrets：`OM_KEYSTORE_BASE64`（keystore 的 base64）、`OM_KEY_ALIAS`、`OM_KEY_PASS`。
+- 本地没有凭据时 `assembleRelease` 会出**未签名**包（装不上，仅供检查产物）。
 
-1. 打开 App，填服务器地址（如 `http://192.168.0.105:42000`）与密码，点连接。
-2. 「会话」里点一个会话进入聊天；右下角「新建会话」可以选目录。
-3. 会话运行中继续发消息会进入队列，输入框上方会显示「待发送 N 条」。
-4. 「缓存」页直接向服务端拉取最近 20 个会话的消息并聚合，不依赖 42003 看板。
-5. 「文件」「终端」都作用于服务端当前 location（`/api/location` 的目录）。
+## 反馈
 
-## 技术栈
-
-- Kotlin 2.0.21 / Compose BOM 2024.10.01 / Material 3
-- OkHttp 4.12（REST、SSE、WebSocket）
-- kotlinx.serialization（宽松解析 `JsonElement`，兼容服务端字段变化）
-- AGP 8.7.3 / Gradle 8.9 / compileSdk 34
+- 用 [Issues](https://github.com/a2heng/opencode-mobile/issues) 提，已提供 Bug / 功能建议模板。
+- **优先范围**：opencode 原生（Web / TUI / Desktop）已经有、但 Android 端还没实现或不好用的能力；
+  纯手机端的新点子也欢迎，只是排序会靠后。
+- 参考实现放在子模块 `reference/opencode`（只用于对齐 API 语义，界面按手机习惯重做，不复刻）。
 
 ## 目录
 
 ```
 app/src/main/java/com/a2heng/opencode/mobile/
-├── MainActivity.kt
+├── MainActivity.kt          # 启动画面 / 分享入口
 ├── data/
-│   ├── OcClient.kt      # HTTP / SSE / PTY WebSocket 封装
-│   ├── Models.kt        # 宽松 JSON 解析、消息/缓存统计
-│   └── AppModel.kt      # 全局状态 + 事件流 + 队列/权限/终端
+│   ├── OcClient.kt          # HTTP / SSE / PTY WebSocket
+│   ├── Models.kt            # 宽松 JSON 解析、缓存统计
+│   └── AppModel.kt          # 全局状态、事件流、队列/权限/终端
 └── ui/
-    ├── AppRoot.kt       # 连接页 / 主框架 / 设置
-    ├── SessionsScreen.kt
-    ├── ChatScreen.kt
-    ├── CacheScreen.kt
-    ├── FilesScreen.kt
-    ├── TerminalScreen.kt
-    ├── NewSessionDialog.kt
-    ├── Markdown.kt
-    ├── Components.kt
-    └── Theme.kt
+    ├── AppRoot.kt           # 主框架 / 设置
+    ├── SessionsScreen.kt  ChatScreen.kt  CacheScreen.kt
+    ├── FilesScreen.kt     TerminalScreen.kt  NewSessionDialog.kt
+    ├── Markdown.kt        ToolViews.kt       Components.kt  Theme.kt
 ```
 
-## 已知限制 / 后续
+接口细节与踩坑记录见 [docs/API-NOTES.md](docs/API-NOTES.md)。
 
-- 助手消息的 Markdown 为轻量实现（代码块、行内代码、粗体/斜体、链接），暂不支持表格与嵌套列表。
-- 图片/文件附件只显示占位，不能从手机上传附件。
-- 会话列表分页仅取服务端默认返回；消息很多时首屏加载会变慢（后续做游标分页）。
-- 暂无推送 / 后台常驻；App 退到后台后 SSE 会断开，回前台自动重连。
-- 平板/横屏还没有专门布局。
+## 已知限制
 
-## 版权
+- Markdown 暂不支持表格与嵌套列表；附件只支持图片。
+- 消息没有游标分页，超长会话首屏会慢；缓存页只取最近 20 个会话。
+- 退到后台 SSE 会断开，回前台自动重连；没有推送。
+- 平板 / 横屏还没有专门布局。
 
-闭源项目，保留所有权利（All rights reserved）。未经授权请勿分发。
+## License
+
+[MIT](LICENSE) © 2026 a2heng

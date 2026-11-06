@@ -50,6 +50,8 @@ import com.a2heng.opencode.mobile.data.AppModel
 fun AppRoot(model: AppModel) {
     if (!model.connected) {
         ConnectScreen(model)
+    } else if (model.current != null) {
+        ChatScreen(model, model.current!!)
     } else {
         MainScreen(model)
     }
@@ -70,12 +72,10 @@ fun MainScreen(model: AppModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showNewSession by rememberSaveable { mutableStateOf(false) }
-    val chatOpen = tab == 0 && model.current != null
 
     Scaffold(
         topBar = {
-            if (!chatOpen) {
-                TopAppBar(
+            TopAppBar(
                 title = {
                     Column {
                         Text(
@@ -105,7 +105,6 @@ fun MainScreen(model: AppModel) {
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
-            }
         },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -142,16 +141,12 @@ fun MainScreen(model: AppModel) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            if (chatOpen) {
-                ChatScreen(model, model.current!!)
-            } else {
-                ErrorBanner(model)
-                when (tab) {
-                    0 -> SessionsScreen(model, onNewSession = { showNewSession = true })
-                    1 -> CacheScreen(model)
-                    2 -> FilesScreen(model)
-                    else -> TerminalScreen(model)
-                }
+            ErrorBanner(model)
+            when (tab) {
+                0 -> SessionsScreen(model, onNewSession = { showNewSession = true })
+                1 -> CacheScreen(model)
+                2 -> FilesScreen(model)
+                else -> TerminalScreen(model)
             }
         }
     }
@@ -209,6 +204,16 @@ private fun SettingsDialog(model: AppModel, onDismiss: () -> Unit) {
                 LabelValue("认证", if (model.password.isBlank()) "无密码" else "Basic · opencode")
 
                 Spacer(Modifier.height(8.dp))
+                Text("主题色", style = MaterialTheme.typography.labelLarge)
+                themePresetKeys().forEach { key ->
+                    OptionRow(
+                        title = themePresetLabel(key),
+                        subtitle = if (key == "dynamic") "Android 12+ Material You" else "预设色系",
+                        selected = model.themeMode == key,
+                    ) { model.updateThemeMode(key) }
+                }
+
+                Spacer(Modifier.height(8.dp))
                 Text("会话运行中发送消息时", style = MaterialTheme.typography.labelLarge)
                 OptionRow(
                     title = "排队等待（pending）",
@@ -230,19 +235,14 @@ private fun SettingsDialog(model: AppModel, onDismiss: () -> Unit) {
                 Text("聊天显示精细度", style = MaterialTheme.typography.labelLarge)
                 OptionRow(
                     title = "精简",
-                    subtitle = "只留回答，隐藏思考、工具与页脚",
+                    subtitle = "工具压成一行，点一下用气泡看完整内容",
                     selected = model.detailLevel == "compact",
                 ) { model.updateDetailLevel("compact") }
                 OptionRow(
-                    title = "标准",
-                    subtitle = "思考和工具折叠，点开可看",
-                    selected = model.detailLevel == "normal",
-                ) { model.updateDetailLevel("normal") }
-                OptionRow(
-                    title = "详细",
-                    subtitle = "思考、diff、工具输出默认展开",
-                    selected = model.detailLevel == "verbose",
-                ) { model.updateDetailLevel("verbose") }
+                    title = "完整",
+                    subtitle = "思考、diff、工具输出全部展开",
+                    selected = model.detailLevel == "full",
+                ) { model.updateDetailLevel("full") }
 
                 Spacer(Modifier.height(8.dp))
                 Text(

@@ -366,6 +366,9 @@ data class Queued(val id: String, val text: String)
 /** 通过 prompt 的 files 字段发送的图片（inline base64）。 */
 data class Attachment(val name: String, val mime: String, val base64: String)
 
+/** 从系统分享面板进来的一次性内容。 */
+data class SharedPayload(val text: String?, val image: Attachment?)
+
 data class PtyInfo(
     val id: String,
     val title: String,

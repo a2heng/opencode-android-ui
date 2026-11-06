@@ -17,10 +17,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -32,6 +39,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -125,6 +134,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var pickModel by remember { mutableStateOf(false) }
     var pickAgent by remember { mutableStateOf(false) }
     var revertTarget by remember { mutableStateOf<Msg?>(null) }
+    var detailTool by remember { mutableStateOf<Part.Tool?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -135,6 +145,15 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 val att = withContext(Dispatchers.IO) { loadImageAttachment(context, uri) }
                 if (att != null) attachments.add(att)
             }
+        }
+    }
+
+    // 其它 App 分享进来的文本 / 图片
+    LaunchedEffect(model.pendingDraft, model.pendingAttachment) {
+        if (model.pendingDraft != null || model.pendingAttachment != null) {
+            val (text, image) = model.consumeDraft()
+            if (!text.isNullOrBlank()) input = text
+            if (image != null) attachments.add(image)
         }
     }
 
@@ -149,6 +168,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -239,12 +259,8 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                 model.updateDetailLevel("compact")
                                 menu = false
                             }
-                            SendModeItem("标准", model.detailLevel == "normal") {
-                                model.updateDetailLevel("normal")
-                                menu = false
-                            }
-                            SendModeItem("详细", model.detailLevel == "verbose") {
-                                model.updateDetailLevel("verbose")
+                            SendModeItem("完整", model.detailLevel == "full") {
+                                model.updateDetailLevel("full")
                                 menu = false
                             }
                         }
@@ -341,7 +357,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             }
                         }
                         items(model.messages.asReversed(), key = { it.id }) { msg ->
-                            MessageItem(msg, model.detailLevel) { revertTarget = it }
+                            MessageItem(
+                                msg = msg,
+                                detail = model.detailLevel,
+                                onLongPressUser = { revertTarget = it },
+                                onOpenTool = { detailTool = it },
+                            )
                         }
                     }
                     if (listState.firstVisibleItemIndex > 2) {
@@ -426,6 +447,10 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
             },
         )
     }
+
+    detailTool?.let { tool ->
+        ToolDetailDialog(tool) { detailTool = null }
+    }
 }
 
 @Composable
@@ -440,7 +465,11 @@ private fun ChatComposer(
     onSend: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
-        Column(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
+        ) {
             if (attachments.isNotEmpty()) {
                 Row(
                     Modifier
@@ -539,7 +568,13 @@ private fun ChatComposer(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageItem(msg: Msg, detail: String, onLongPressUser: (Msg) -> Unit = {}) {
+private fun MessageItem(
+    msg: Msg,
+    detail: String,
+    onLongPressUser: (Msg) -> Unit = {},
+    onOpenTool: (Part.Tool) -> Unit = {},
+) {
+    val haptics = LocalHapticFeedback.current
     if (msg.isUser) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(
@@ -549,7 +584,10 @@ private fun MessageItem(msg: Msg, detail: String, onLongPressUser: (Msg) -> Unit
                     .widthIn(max = 330.dp)
                     .combinedClickable(
                         onClick = {},
-                        onLongClick = { onLongPressUser(msg) },
+                        onLongClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongPressUser(msg)
+                        },
                     ),
             ) {
                 Column(Modifier.padding(horizontal = if (detail == "compact") 10.dp else 13.dp, vertical = if (detail == "compact") 6.dp else 9.dp)) {
@@ -569,7 +607,7 @@ private fun MessageItem(msg: Msg, detail: String, onLongPressUser: (Msg) -> Unit
         msg.parts.forEach { part ->
             when (part) {
                 is Part.Reasoning -> ReasoningBlock(part.text, detail)
-                is Part.Tool -> ToolBlock(part, detail)
+                is Part.Tool -> ToolBlock(part, detail, onOpenTool)
                 is Part.Text -> AssistantText(part.text)
             }
         }
@@ -590,12 +628,8 @@ private fun AssistantText(text: String) {
 @Composable
 private fun ReasoningBlock(text: String, detail: String) {
     if (text.isBlank() || detail == "compact") return
-    var expanded by remember(detail) { mutableStateOf(detail == "verbose") }
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.clickableNoRipple { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Rounded.Psychology,
                 contentDescription = null,
@@ -604,64 +638,84 @@ private fun ReasoningBlock(text: String, detail: String) {
             )
             Spacer(Modifier.width(5.dp))
             Text(
-                if (expanded) "思考过程" else "思考过程（${text.length} 字）",
+                "思考过程 · ${text.length} 字",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Icon(
-                if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
-        if (expanded) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 6.dp, top = 4.dp)
+                .heightIn(max = 220.dp)
+                .verticalScroll(rememberScrollState())
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                .padding(8.dp),
+        ) {
             Text(
                 text,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 6.dp, top = 4.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                    .padding(8.dp),
+                fontSize = 10.5.sp,
             )
         }
     }
 }
 
 @Composable
-private fun ToolBlock(part: Part.Tool, detail: String) {
+private fun ShellBlock(text: String, command: Boolean, maxLines: Int) {
+    val accent = if (command) Sky else MaterialTheme.colorScheme.outline
+    val bg = if (command) Sky.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
+            .background(bg, RoundedCornerShape(6.dp)),
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(accent),
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.5.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+        )
+    }
+}
+
+@Composable
+private fun ToolBlock(part: Part.Tool, detail: String, onOpen: (Part.Tool) -> Unit) {
     val hasDiff = part.diff.isNotBlank()
     val hasOutput = part.output.isNotBlank()
     val hasImages = part.images.isNotEmpty()
     val hasError = part.error.isNotBlank()
-    val hasExtra = hasDiff || hasOutput || hasImages || hasError
-    var expanded by remember(detail) { mutableStateOf(detail == "verbose") }
     val statusColor = when (part.status) {
         "completed", "success" -> Accent
         "error", "failed" -> MaterialTheme.colorScheme.error
         "running" -> Sky
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val canExpand = detail != "compact" && hasExtra
 
     if (detail == "compact") {
-        val summary = part.input.lineSequence().firstOrNull()?.take(120).orEmpty()
+        val summary = part.input.lineSequence().firstOrNull()?.take(140).orEmpty()
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 1.dp),
+                .clickableNoRipple { onOpen(part) }
+                .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                toolIcon(part.name),
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = statusColor,
-            )
+            Icon(toolIcon(part.name), contentDescription = null, modifier = Modifier.size(12.dp), tint = statusColor)
             Spacer(Modifier.width(5.dp))
             Text(
                 part.name,
@@ -686,43 +740,29 @@ private fun ToolBlock(part: Part.Tool, detail: String) {
                 hasImages -> "图片"
                 hasDiff -> "diff"
                 hasOutput -> "输出"
+                hasError -> "错误"
                 else -> ""
             }
             if (extra.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
-                Text(
-                    extra,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = statusColor.copy(alpha = 0.9f),
-                )
+                Text(extra, style = MaterialTheme.typography.labelSmall, color = statusColor.copy(alpha = 0.9f))
             }
         }
         return
     }
 
+    val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
+    val isEditTool = part.name in setOf("edit", "patch", "multiedit")
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
     ) {
-        Column(
-            Modifier
-                .then(if (canExpand) Modifier.clickableNoRipple { expanded = !expanded } else Modifier)
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-        ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    toolIcon(part.name),
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp),
-                    tint = statusColor,
-                )
+                Icon(toolIcon(part.name), contentDescription = null, modifier = Modifier.size(15.dp), tint = statusColor)
                 Spacer(Modifier.width(6.dp))
-                Text(
-                    part.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                )
+                Text(part.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     when {
@@ -737,62 +777,137 @@ private fun ToolBlock(part: Part.Tool, detail: String) {
                 )
                 Spacer(Modifier.weight(1f))
                 if (part.truncated) {
+                    Text("已截断", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            if (isShellTool) {
+                if (part.input.isNotBlank()) {
+                    ShellBlock(part.input.take(4000), command = true, maxLines = 6)
+                }
+                if (hasOutput) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        ShellBlock(part.output.takeLast(12000), command = false, maxLines = Int.MAX_VALUE)
+                    }
+                }
+            } else {
+                if (part.input.isNotBlank()) {
                     Text(
-                        "已截断",
+                        part.input.lineSequence().firstOrNull()?.take(220) ?: "",
                         style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 3.dp),
                     )
                 }
-                if (canExpand) {
-                    Icon(
-                        if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                if (hasImages) {
+                    part.images.forEach { DataUriImage(it) }
+                }
+                if (hasDiff) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 380.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        DiffView(part.diff)
+                    }
+                }
+                if (hasOutput && !isEditTool) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        Text(
+                            part.output.takeLast(12000),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 5.dp),
+                        )
+                    }
                 }
             }
-            if (part.input.isNotBlank() && detail != "compact") {
-                Text(
-                    part.input.lineSequence().firstOrNull()?.take(180) ?: "",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (expanded) 6 else 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-            if (hasImages) {
-                part.images.forEach { DataUriImage(it) }
-            }
-            val isEditTool = part.name in setOf("edit", "patch", "multiedit")
-            if (hasDiff) {
-                // 标准模式只给真正改动行的前 12 行；详细模式给完整 diff
-                DiffView(if (expanded) part.diff else diffPreview(part.diff, 12))
-            }
-            if (hasOutput && !isEditTool) {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    if (expanded) part.output.takeLast(8000) else part.output.take(600),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (expanded) Int.MAX_VALUE else 8,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (hasError && (expanded || detail == "normal")) {
-                Spacer(Modifier.height(6.dp))
+            if (hasError) {
                 Text(
                     part.error,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 5.dp),
                 )
             }
         }
     }
+}
+
+@Composable
+private fun ToolDetailDialog(part: Part.Tool, onDismiss: () -> Unit) {
+    val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(toolIcon(part.name), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(part.name)
+                Spacer(Modifier.width(8.dp))
+                Text(part.status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                if (part.input.isNotBlank()) {
+                    if (isShellTool) {
+                        ShellBlock(part.input, command = true, maxLines = Int.MAX_VALUE)
+                    } else {
+                        Text(
+                            part.input,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (part.images.isNotEmpty()) {
+                    part.images.forEach { DataUriImage(it) }
+                }
+                if (part.diff.isNotBlank()) {
+                    DiffView(part.diff)
+                }
+                if (part.output.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        part.output,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (part.error.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(part.error, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
 }
 
 @Composable
@@ -855,12 +970,19 @@ private fun LiveBubble(model: AppModel, detail: String) {
 
 @Composable
 private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onWithdraw, modifier = Modifier.size(32.dp)) {
+        IconButton(
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onWithdraw()
+            },
+            modifier = Modifier.size(32.dp),
+        ) {
             Icon(
                 Icons.AutoMirrored.Rounded.ArrowBack,
                 contentDescription = "撤回编辑",
@@ -902,8 +1024,8 @@ private fun SmallScrollToBottom(modifier: Modifier = Modifier, onClick: () -> Un
     }
 }
 
-/** 选一张图 -> 最长边压到 1600px -> JPEG 85 -> inline base64（opencode 的 files[].data）。 */
-private fun loadImageAttachment(context: Context, uri: Uri): Attachment? = runCatching {
+/** 选一张图 -> 最长边压到 1600px -> JPEG 85 -> inline base64（opencode 的 files[].uri）。 */
+fun loadImageAttachment(context: Context, uri: Uri): Attachment? = runCatching {
     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
         ?: return@runCatching null
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

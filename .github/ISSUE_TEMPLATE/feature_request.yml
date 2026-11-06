@@ -1,0 +1,41 @@
+name: 功能 / 体验建议
+description: 优先提 opencode 桌面端原本就有、但手机端还没实现或不顺手的
+labels: ["enhancement", "oc-parity"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **优先范围**：opencode 原生（Web / TUI / Desktop）已经有的能力，但 Android 端缺失或不好用。
+        纯手机端新增的点子也欢迎，只是会排在后面。
+  - type: textarea
+    id: feature
+    attributes:
+      label: 想要的功能 / 现在哪里不好用
+    validations:
+      required: true
+  - type: textarea
+    id: oc
+    attributes:
+      label: opencode 原生是怎么做的（如果它本来就有）
+      description: 可以贴截图、菜单路径、快捷键或源码位置
+  - type: textarea
+    id: mobile
+    attributes:
+      label: 手机上期望的交互
+      description: 例如长按、底部弹出、分享面板、通知栏、单手可达等
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 你有多需要它
+      options:
+        - 影响日常使用
+        - 有明显提升
+        - 有了更好
+    validations:
+      required: true
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: 是否愿意提 PR
+      options:
+        - label: 愿意，我可以自己实现

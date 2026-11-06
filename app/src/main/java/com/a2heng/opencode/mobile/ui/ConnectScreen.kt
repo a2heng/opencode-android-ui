@@ -83,7 +83,7 @@ fun ConnectScreen(model: AppModel) {
                 value = url,
                 onValueChange = { url = it },
                 label = { Text("服务器地址") },
-                placeholder = { Text("http://192.168.0.105:42000") },
+                placeholder = { Text("http://192.168.1.100:42000") },
                 leadingIcon = { Icon(Icons.Rounded.Dns, contentDescription = null) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),

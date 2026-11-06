@@ -31,7 +31,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("opencode-mobile", Application.MODE_PRIVATE)
 
     // ---- 连接 ---------------------------------------------------------------
-    var serverUrl by mutableStateOf(prefs.getString("url", "http://192.168.0.105:42000") ?: "")
+    var serverUrl by mutableStateOf(prefs.getString("url", "") ?: "")
         private set
     var password by mutableStateOf(prefs.getString("password", "") ?: "")
         private set
@@ -50,8 +50,22 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var sendMode by mutableStateOf(prefs.getString("send_mode", "pending") ?: "pending")
         private set
 
-    /** 聊天显示精细度：compact / normal / verbose */
-    var detailLevel by mutableStateOf(prefs.getString("detail_level", "normal") ?: "normal")
+    /** 聊天显示：compact（精简，工具一行 + 点击气泡看详情）/ full（完整，全部展开） */
+    var detailLevel by mutableStateOf(
+        (prefs.getString("detail_level", "full") ?: "full").let {
+            if (it == "normal" || it == "verbose") "full" else it
+        },
+    )
+        private set
+
+    /** 主题色：mono（默认）/ dynamic（Material You）/ blue / purple / orange / cyan */
+    var themeMode by mutableStateOf(prefs.getString("theme_mode", "mono") ?: "mono")
+        private set
+
+    /** 从其它应用分享进来的内容，等聊天页消费 */
+    var pendingDraft by mutableStateOf<String?>(null)
+        private set
+    var pendingAttachment by mutableStateOf<Attachment?>(null)
         private set
 
     var client: OcClient? = null
@@ -211,6 +225,24 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun updateDetailLevel(level: String) {
         detailLevel = level
         prefs.edit().putString("detail_level", level).apply()
+    }
+
+    fun updateThemeMode(mode: String) {
+        themeMode = mode
+        prefs.edit().putString("theme_mode", mode).apply()
+    }
+
+    fun applyShare(text: String?, image: Attachment?) {
+        if (!text.isNullOrBlank()) pendingDraft = text
+        if (image != null) pendingAttachment = image
+    }
+
+    /** 聊天页取走分享内容，避免重复填充。 */
+    fun consumeDraft(): Pair<String?, Attachment?> {
+        val result = pendingDraft to pendingAttachment
+        pendingDraft = null
+        pendingAttachment = null
+        return result
     }
 
     // =========================================================================
@@ -599,7 +631,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 activeIds = activeIds + sid
                 statusLine = "正在思考…"
             }
-            "session.step.started" -> statusLine = "第 ${data.str("ordinal") ?: ""} 步"
+            "session.step.started" -> {
+                val n = data.str("ordinal") ?: data.str("step") ?: data.str("index")
+                statusLine = if (n.isNullOrBlank()) "思考中…" else "第 $n 步"
+            }
             "session.step.ended", "session.step.streamed" -> {
                 sending = true
                 scheduleReload()

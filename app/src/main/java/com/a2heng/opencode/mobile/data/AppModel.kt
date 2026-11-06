@@ -46,8 +46,22 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var homeDir by mutableStateOf("")
         private set
 
-    /** 运行中发送方式：pending（排队，默认）/ steer（立即插入）/ interrupt（中断后发送） */
-    var sendMode by mutableStateOf(prefs.getString("send_mode", "pending") ?: "pending")
+    /**
+     * 运行中发送方式。opencode 的 delivery 只有 steer / queue，且**默认是 steer**
+     * （见 core/src/session/session.ts：input.delivery ?? "steer"）。
+     * 「中断后发送」是本 App 的客户端行为，不是 opencode 的 delivery。
+     */
+    var sendMode by mutableStateOf(
+        run {
+            if (!prefs.getBoolean("send_mode_v2", false)) {
+                prefs.edit()
+                    .putString("send_mode", "steer")
+                    .putBoolean("send_mode_v2", true)
+                    .apply()
+            }
+            prefs.getString("send_mode", "steer") ?: "steer"
+        },
+    )
         private set
 
     /** 聊天显示：compact（精简，工具一行 + 点击气泡看详情）/ full（完整，全部展开） */

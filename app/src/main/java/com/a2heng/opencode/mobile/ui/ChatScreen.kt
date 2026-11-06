@@ -334,12 +334,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                             )
-                            SendModeItem("队列等待（pending）", model.sendMode == "pending") {
-                                model.updateSendMode("pending")
+                            SendModeItem("steer（默认）", model.sendMode == "steer") {
+                                model.updateSendMode("steer")
                                 menu = false
                             }
-                            SendModeItem("立即插入（steer）", model.sendMode == "steer") {
-                                model.updateSendMode("steer")
+                            SendModeItem("queue", model.sendMode == "queue") {
+                                model.updateSendMode("queue")
                                 menu = false
                             }
                             SendModeItem("中断后发送", model.sendMode == "interrupt") {

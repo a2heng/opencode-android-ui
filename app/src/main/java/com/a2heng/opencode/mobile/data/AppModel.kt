@@ -74,21 +74,12 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         viewModelScope.launch {
             try {
-                val list = withContext(Dispatchers.IO) { c.shells() }
-                val live = list.associateBy { it.id }
-                // 已经结束、但上一轮还在跑的，保留为 exited，方便回看输出
-                val exited = shells.filter { it.id !in live && it.status == "running" }
-                    .map { it.copy(status = "exited") }
-                shells = (list + exited + shells.filter { it.status == "exited" })
-                    .distinctBy { it.id }
-                    .take(10)
+                // 只保留正在跑的；跑完的在服务端队列里自然消失，不需要本地留档
+                shells = withContext(Dispatchers.IO) { c.shells() }
+                    .filter { it.status.isEmpty() || it.status == "running" }
             } catch (_: Exception) {
             }
         }
-    }
-
-    fun clearShells() {
-        shells = emptyList()
     }
 
     suspend fun loadShellOutput(id: String): String {

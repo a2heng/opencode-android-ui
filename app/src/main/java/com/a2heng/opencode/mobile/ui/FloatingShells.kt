@@ -16,7 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -81,13 +81,22 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                         modifier = Modifier.size(22.dp),
                     )
                     if (model.shells.size > 1) {
-                        Text(
-                            model.shells.size.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                        Surface(
+                            color = MaterialTheme.colorScheme.error,
+                            shape = CircleShape,
                             modifier = Modifier
-                                .padding(start = 26.dp, bottom = 26.dp),
-                        )
+                                .size(18.dp)
+                                .align(Alignment.TopEnd),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    model.shells.size.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onError,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -125,18 +134,16 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                                 .weight(1f),
                         )
                         Text(
-                            "清空",
+                            "收起",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .clickableNoRipple {
-                                    model.clearShells()
-                                    expanded = false
-                                }
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                         IconButton(onClick = { expanded = false }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Rounded.Close, contentDescription = "收起", modifier = Modifier.size(15.dp))
+                            Icon(
+                                Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = "收起窗口（不会停止命令）",
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -161,17 +168,9 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                when {
-                                    selected == shell.id -> "查看中"
-                                    shell.status == "exited" -> "已结束"
-                                    else -> "运行中"
-                                },
+                                if (selected == shell.id) "查看中" else "运行中",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (shell.status == "exited") {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.primary
-                                },
+                                color = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }

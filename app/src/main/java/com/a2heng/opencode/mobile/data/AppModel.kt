@@ -89,6 +89,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun stopShell(id: String) {
+        val c = client ?: return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { c.stopShell(id) }
+                refreshShells()
+            } catch (e: Exception) {
+                lastError = e.message
+            }
+        }
+    }
+
     val appVersion: String = com.a2heng.opencode.mobile.BuildConfig.VERSION_NAME
     var checkingUpdate by mutableStateOf(false)
         private set

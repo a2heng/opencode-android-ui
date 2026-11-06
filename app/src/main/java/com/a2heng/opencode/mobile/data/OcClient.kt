@@ -205,6 +205,10 @@ class OcClient(rawBase: String, private val password: String) {
         }
     }
 
+    suspend fun stopShell(id: String) {
+        delete("/api/shell/$id")
+    }
+
     suspend fun runCommand(
         sessionID: String,
         name: String,

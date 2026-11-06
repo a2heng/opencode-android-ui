@@ -1,0 +1,375 @@
+package com.a2heng.opencode.mobile.data
+
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import okhttp3.Credentials
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import java.util.concurrent.TimeUnit
+
+class ApiException(val code: Int, message: String) : Exception(message)
+
+/**
+ * opencode HTTP API 的极薄封装。
+ *
+ * 认证是 Basic：用户名固定 `opencode`，密码就是服务端 `OPENCODE_PASSWORD`。
+ * 服务端没设密码时不会带 Authorization 头。
+ */
+class OcClient(rawBase: String, private val password: String) {
+
+    val base: String = normalize(rawBase)
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        explicitNulls = false
+    }
+
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    private val authHeader: String? =
+        if (password.isNotEmpty()) Credentials.basic("opencode", password) else null
+
+    private fun request(path: String): Request.Builder {
+        val b = Request.Builder().url(base + path)
+        authHeader?.let { b.header("Authorization", it) }
+        return b
+    }
+
+    suspend fun get(path: String): JsonElement {
+        val resp = http.newCall(request(path).get().build()).execute()
+        return resp.use { readJson(it) }
+    }
+
+    suspend fun post(path: String, body: JsonElement? = null): JsonElement? {
+        val payload = (body ?: JsonObject(emptyMap())).toString()
+        val req = request(path)
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+        val resp = http.newCall(req).execute()
+        return resp.use { r ->
+            if (!r.isSuccessful) throw errorOf(r)
+            val text = r.body?.string().orEmpty()
+            if (text.isBlank()) null else json.parseToJsonElement(text)
+        }
+    }
+
+    suspend fun patch(path: String, body: JsonElement): JsonElement? {
+        val req = request(path)
+            .patch(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        val resp = http.newCall(req).execute()
+        return resp.use { r ->
+            if (!r.isSuccessful) throw errorOf(r)
+            val text = r.body?.string().orEmpty()
+            if (text.isBlank()) null else json.parseToJsonElement(text)
+        }
+    }
+
+    suspend fun delete(path: String) {
+        val resp = http.newCall(request(path).delete().build()).execute()
+        resp.use { r -> if (!r.isSuccessful) throw errorOf(r) }
+    }
+
+    private fun readJson(resp: Response): JsonElement {
+        if (!resp.isSuccessful) throw errorOf(resp)
+        val text = resp.body?.string().orEmpty()
+        if (text.isBlank()) return JsonObject(emptyMap())
+        return json.parseToJsonElement(text)
+    }
+
+    private fun errorOf(resp: Response): ApiException {
+        val body = try {
+            resp.body?.string().orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        val detail = try {
+            val o = json.parseToJsonElement(body) as? JsonObject
+            o?.str("message") ?: o?.str("_tag") ?: body.take(200)
+        } catch (_: Exception) {
+            body.take(200)
+        }
+        return ApiException(resp.code, "HTTP ${resp.code}: $detail")
+    }
+
+    // ---- 便捷接口 -----------------------------------------------------------
+
+    suspend fun sessionList(): List<SessionInfo> =
+        unwrapArray(get("/api/session")).mapNotNull { (it as? JsonObject)?.let(SessionInfo::from) }
+
+    /** 服务端的根目录（/api/location 的 directory），用来显示 ~ 相对路径。 */
+    suspend fun locationRoot(): String =
+        (get("/api/location") as? JsonObject)?.str("directory") ?: ""
+
+    /** 真正在跑的会话：/api/session/active 返回 { data: { ses_x: {type:"running"} } } */
+    suspend fun activeSessionIds(): Set<String> {
+        val body = get("/api/session/active") as? JsonObject ?: return emptySet()
+        val data = body["data"] as? JsonObject ?: return emptySet()
+        return data.keys
+    }
+
+    suspend fun session(id: String): SessionInfo? =
+        unwrapObject(get("/api/session/$id"))?.let(SessionInfo::from)
+
+    suspend fun messages(sessionID: String): List<Msg> =
+        unwrapArray(get("/api/session/$sessionID/message"))
+            .mapNotNull { (it as? JsonObject)?.let(::parseMessage) }
+
+    suspend fun prompt(sessionID: String, text: String, delivery: String? = null) {
+        post(
+            "/api/session/$sessionID/prompt",
+            buildJsonObject {
+                put("text", JsonPrimitive(text))
+                if (delivery != null) put("delivery", JsonPrimitive(delivery))
+            },
+        )
+    }
+
+    suspend fun inbox(sessionID: String): List<JsonObject> =
+        unwrapArray(get("/api/session/$sessionID/inbox")).mapNotNull { it as? JsonObject }
+
+    suspend fun cancelInbox(sessionID: String, inboxID: String) {
+        delete("/api/session/$sessionID/inbox/$inboxID")
+    }
+
+    suspend fun runShell(command: String, cwd: String? = null) {
+        val body = buildJsonObject {
+            put("command", JsonPrimitive(command))
+            if (!cwd.isNullOrBlank()) put("cwd", JsonPrimitive(cwd))
+        }
+        post("/api/shell", body)
+    }
+
+    suspend fun interrupt(sessionID: String) {
+        post("/api/session/$sessionID/interrupt")
+    }
+
+    suspend fun createSession(directory: String? = null): SessionInfo? {
+        val body = buildJsonObject {
+            if (!directory.isNullOrBlank()) {
+                put("location", buildJsonObject { put("directory", JsonPrimitive(directory)) })
+            }
+        }
+        return unwrapObject(post("/api/session", body))?.let(SessionInfo::from)
+    }
+
+    suspend fun deleteSession(id: String) = delete("/api/session/$id")
+
+    suspend fun renameSession(id: String, title: String) {
+        patch("/api/session/$id", buildJsonObject { put("title", JsonPrimitive(title)) })
+    }
+
+    suspend fun setModel(sessionID: String, model: ModelRef) {
+        post(
+            "/api/session/$sessionID/model",
+            buildJsonObject { put("model", model.toJson()) },
+        )
+    }
+
+    suspend fun setAgent(sessionID: String, agent: String) {
+        post(
+            "/api/session/$sessionID/agent",
+            buildJsonObject { put("agent", JsonPrimitive(agent)) },
+        )
+    }
+
+    suspend fun agents(): List<JsonObject> =
+        unwrapArray(get("/api/agent")).mapNotNull { it as? JsonObject }
+
+    suspend fun models(): List<JsonObject> =
+        unwrapArray(get("/api/model")).mapNotNull { it as? JsonObject }
+
+    suspend fun permissions(): List<PermissionReq> =
+        unwrapArray(get("/api/permission/request")).mapNotNull {
+            (it as? JsonObject)?.let(::parsePermission)
+        }
+
+    suspend fun replyPermission(sessionID: String, requestID: String, decision: String) {
+        post(
+            "/api/session/$sessionID/permission/$requestID/reply",
+            buildJsonObject { put("decision", JsonPrimitive(decision)) },
+        )
+    }
+
+    suspend fun forms(sessionID: String): List<FormInfo> =
+        unwrapArray(get("/api/session/$sessionID/form")).mapNotNull {
+            (it as? JsonObject)?.let(::parseForm)
+        }
+
+    suspend fun replyForm(sessionID: String, formID: String, answer: JsonElement) {
+        post(
+            "/api/session/$sessionID/form/$formID/reply",
+            buildJsonObject { put("answer", answer) },
+        )
+    }
+
+    suspend fun listDir(path: String?): Pair<String, List<FsEntry>> {
+        val q = if (path.isNullOrBlank()) "" else "?path=" + urlEncode(path)
+        val o = get("/api/fs/list$q") as? JsonObject ?: JsonObject(emptyMap())
+        val dir = o.obj("location")?.str("directory") ?: ""
+        val entries = o.arr("data").mapNotNull { e ->
+            val ob = e as? JsonObject ?: return@mapNotNull null
+            FsEntry(ob.str("path") ?: return@mapNotNull null, ob.str("type") ?: "file")
+        }
+        return dir to entries
+    }
+
+    suspend fun readFile(path: String): String {
+        val req = request("/api/fs/read/" + path.split('/').joinToString("/") { urlEncode(it) }).get().build()
+        val resp = http.newCall(req).execute()
+        return resp.use { r ->
+            if (!r.isSuccessful) throw errorOf(r)
+            val text = r.body?.string().orEmpty()
+            try {
+                val o = json.parseToJsonElement(text) as? JsonObject
+                val data = o?.get("data")
+                when (data) {
+                    is JsonPrimitive -> data.content
+                    is JsonObject -> data.str("content") ?: text
+                    else -> text
+                }
+            } catch (_: Exception) {
+                text
+            }
+        }
+    }
+
+    suspend fun ptyList(): List<PtyInfo> =
+        unwrapArray(get("/api/pty")).mapNotNull { (it as? JsonObject)?.let(::parsePty) }
+
+    suspend fun ptyCreate(command: String = "bash", cwd: String? = null): PtyInfo? {
+        val body = buildJsonObject {
+            put("command", JsonPrimitive(command))
+            put("title", JsonPrimitive("手机终端"))
+            if (!cwd.isNullOrBlank()) put("cwd", JsonPrimitive(cwd))
+        }
+        return unwrapObject(post("/api/pty", body))?.let(::parsePty)
+    }
+
+    suspend fun ptyRemove(id: String) = delete("/api/pty/$id")
+
+    suspend fun ptyResize(id: String, rows: Int, cols: Int) {
+        val body = buildJsonObject {
+            put(
+                "size",
+                buildJsonObject {
+                    put("rows", JsonPrimitive(rows))
+                    put("cols", JsonPrimitive(cols))
+                },
+            )
+        }
+        patch("/api/pty/$id", body)
+    }
+
+    /** 申请 PTY WebSocket 票据（服务端强制要求 x-opencode-ticket: 1）。 */
+    suspend fun ptyTicket(id: String): String? {
+        val req = request("/api/pty/$id/connect-token")
+            .header("x-opencode-ticket", "1")
+            .post(JsonObject(emptyMap()).toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        val resp = http.newCall(req).execute()
+        return resp.use { r ->
+            if (!r.isSuccessful) throw errorOf(r)
+            val o = json.parseToJsonElement(r.body?.string().orEmpty()) as? JsonObject
+            o?.obj("data")?.str("ticket")
+        }
+    }
+
+    fun ptySocket(id: String, ticket: String, listener: WebSocketListener): WebSocket {
+        val wsUrl = base.replaceFirst("http://", "ws://").replaceFirst("https://", "wss://") +
+            "/api/pty/$id/connect?ticket=" + urlEncode(ticket)
+        return http.newWebSocket(Request.Builder().url(wsUrl).build(), listener)
+    }
+
+    // ---- 事件流（SSE） ------------------------------------------------------
+
+    /**
+     * 订阅 /api/event。上游断开或网络抖动时由调用方重新收集（这里只抛结束）。
+     * 每行形如 `data: {...}`，另外有心跳注释行 `: heartbeat`。
+     */
+    fun events(): Flow<JsonObject> = callbackFlow {
+        val req = request("/api/event").header("Accept", "text/event-stream").get().build()
+        val call = http.newCall(req)
+        val thread = Thread {
+            try {
+                call.execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        trySendBlocking(JsonObject(mapOf("type" to JsonPrimitive("__error"))))
+                        close()
+                        return@use
+                    }
+                    val source = resp.body?.source() ?: return@use
+                    while (!source.exhausted()) {
+                        val line = source.readUtf8Line() ?: break
+                        if (!line.startsWith("data:")) continue
+                        val raw = line.removePrefix("data:").trim()
+                        if (raw.isEmpty()) continue
+                        try {
+                            val o = json.parseToJsonElement(raw) as? JsonObject ?: continue
+                            if (trySendBlocking(o).isFailure) break
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                close()
+            }
+        }
+        thread.isDaemon = true
+        thread.name = "opencode-events"
+        thread.start()
+        awaitClose {
+            try {
+                call.cancel()
+            } catch (_: Exception) {
+            }
+            thread.interrupt()
+        }
+    }
+
+    suspend fun ping(): JsonElement = get("/api/info")
+
+    companion object {
+        fun normalize(input: String): String {
+            var s = input.trim()
+            if (s.isEmpty()) return "http://127.0.0.1:42000"
+            if (!s.startsWith("http://") && !s.startsWith("https://")) s = "http://$s"
+            return s.trimEnd('/')
+        }
+
+        fun urlEncode(s: String): String =
+            java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
+        fun unwrapArray(e: JsonElement): List<JsonElement> = when (e) {
+            is JsonArray -> e.toList()
+            is JsonObject -> (e["data"] as? JsonArray)?.toList() ?: emptyList()
+            else -> emptyList()
+        }
+
+        fun unwrapObject(e: JsonElement?): JsonObject? = when (e) {
+            is JsonObject -> (e["data"] as? JsonObject) ?: e
+            else -> null
+        }
+    }
+}

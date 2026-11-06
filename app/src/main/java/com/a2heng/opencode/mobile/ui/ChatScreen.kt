@@ -693,19 +693,23 @@ private fun ChatComposer(
                 AnimatedVisibility(
                     visible = actionsOpen,
                     enter = androidx.compose.animation.expandHorizontally(
-                        animationSpec = androidx.compose.animation.core.spring(
-                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                        animationSpec = tween(
+                            durationMillis = 220,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
                         ),
                         expandFrom = Alignment.Start,
-                    ) + androidx.compose.animation.fadeIn(),
+                    ) + androidx.compose.animation.fadeIn(
+                        animationSpec = tween(durationMillis = 160),
+                    ),
                     exit = androidx.compose.animation.shrinkHorizontally(
-                        animationSpec = androidx.compose.animation.core.spring(
-                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                        animationSpec = tween(
+                            durationMillis = 160,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
                         ),
                         shrinkTowards = Alignment.Start,
-                    ) + androidx.compose.animation.fadeOut(),
+                    ) + androidx.compose.animation.fadeOut(
+                        animationSpec = tween(durationMillis = 120),
+                    ),
                 ) {
                     Row(
                         Modifier.padding(start = 4.dp),

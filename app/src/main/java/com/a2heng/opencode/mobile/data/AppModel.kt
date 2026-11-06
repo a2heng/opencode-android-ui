@@ -68,6 +68,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var pendingAttachment by mutableStateOf<Attachment?>(null)
         private set
 
+    val appVersion: String = com.a2heng.opencode.mobile.BuildConfig.VERSION_NAME
+    var checkingUpdate by mutableStateOf(false)
+        private set
+    var updateMessage by mutableStateOf<String?>(null)
+        private set
+    var updateInfo by mutableStateOf<UpdateInfo?>(null)
+        private set
+    var downloadingUpdate by mutableStateOf(false)
+        private set
+    var updateProgress by mutableStateOf(0)
+        private set
+
     var client: OcClient? = null
         private set
 
@@ -108,6 +120,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var agents by mutableStateOf<List<JsonObject>>(emptyList())
         private set
     var models by mutableStateOf<List<JsonObject>>(emptyList())
+        private set
+    var commands by mutableStateOf<List<CommandInfo>>(emptyList())
+        private set
+    /** modelID -> context window */
+    var contextLimits by mutableStateOf<Map<String, Long>>(emptyMap())
         private set
 
     // ---- 缓存看板 -----------------------------------------------------------
@@ -236,13 +253,78 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (!text.isNullOrBlank()) pendingDraft = text
         if (image != null) pendingAttachment = image
     }
-
-    /** 聊天页取走分享内容，避免重复填充。 */
     fun consumeDraft(): Pair<String?, Attachment?> {
         val result = pendingDraft to pendingAttachment
         pendingDraft = null
         pendingAttachment = null
         return result
+    }
+
+    fun checkUpdate() {
+        if (checkingUpdate) return
+        checkingUpdate = true
+        updateMessage = "检查中…"
+        viewModelScope.launch {
+            try {
+                val info = withContext(Dispatchers.IO) { UpdateClient.latest() }
+                if (info == null) {
+                    updateMessage = "没有找到 Release"
+                } else {
+                    updateInfo = info
+                    updateMessage = if (UpdateClient.isNewer(appVersion, info.tag)) {
+                        "发现新版本 ${info.tag}"
+                    } else {
+                        "已是最新版本 v$appVersion"
+                    }
+                }
+            } catch (e: Exception) {
+                updateMessage = "检查失败：" + (e.message ?: "")
+            } finally {
+                checkingUpdate = false
+            }
+        }
+    }
+
+    fun downloadUpdate() {
+        val info = updateInfo ?: return
+        val url = info.apkUrl
+        if (url == null) {
+            updateMessage = "这个版本没有 APK 附件"
+            return
+        }
+        if (downloadingUpdate) return
+        downloadingUpdate = true
+        updateProgress = 0
+        viewModelScope.launch {
+            try {
+                val dir = java.io.File(getApplication<Application>().cacheDir, "update").apply { mkdirs() }
+                val dest = java.io.File(dir, "opencode-mobile-${info.tag.removePrefix("v")}.apk")
+                withContext(Dispatchers.IO) {
+                    UpdateClient.download(url, dest) { p -> updateProgress = p }
+                }
+                installApk(dest)
+                updateMessage = "已下载，交给系统安装"
+            } catch (e: Exception) {
+                updateMessage = "下载失败：" + (e.message ?: "")
+            } finally {
+                downloadingUpdate = false
+            }
+        }
+    }
+
+    private fun installApk(file: java.io.File) {
+        val ctx = getApplication<Application>()
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            ctx,
+            ctx.packageName + ".fileprovider",
+            file,
+        )
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        ctx.startActivity(intent)
     }
 
     // =========================================================================
@@ -355,6 +437,51 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     }
                     else -> {
                         withContext(Dispatchers.IO) { c.prompt(s.id, bodyText, null, attachments) }
+                        delay(350)
+                        loadMessages(silent = true)
+                    }
+                }
+                refreshSessions()
+            } catch (e: Exception) {
+                lastError = e.message
+                if (mode != "queue" && mode != "steer") sending = false
+            }
+        }
+    }
+
+    fun runCommand(name: String, text: String, attachments: List<Attachment> = emptyList()) {
+        val c = client ?: return
+        val s = current ?: return
+        val busy = isActive(s.id)
+        val mode = if (!busy) "direct" else sendMode
+        lastError = null
+        if (mode != "queue" && mode != "steer") {
+            sending = true
+            liveText = ""
+            liveReasoning = ""
+        }
+        viewModelScope.launch {
+            try {
+                when (mode) {
+                    "queue" -> {
+                        withContext(Dispatchers.IO) { c.runCommand(s.id, name, text, "queue", attachments) }
+                        statusLine = "命令已加入队列"
+                        delay(300)
+                        loadInbox()
+                    }
+                    "steer" -> {
+                        withContext(Dispatchers.IO) { c.runCommand(s.id, name, text, "steer", attachments) }
+                        statusLine = "命令已插入"
+                    }
+                    "interrupt" -> {
+                        withContext(Dispatchers.IO) {
+                            c.interrupt(s.id)
+                            delay(300)
+                            c.runCommand(s.id, name, text, null, attachments)
+                        }
+                    }
+                    else -> {
+                        withContext(Dispatchers.IO) { c.runCommand(s.id, name, text, null, attachments) }
                         delay(350)
                         loadMessages(silent = true)
                     }
@@ -739,13 +866,21 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         viewModelScope.launch {
             try {
-                val (a, m) = withContext(Dispatchers.IO) { c.agents() to c.models() }
+                val (a, m, cmds) = withContext(Dispatchers.IO) {
+                    Triple(c.agents(), c.models(), c.commands())
+                }
                 agents = a.filter { it.str("mode") != "subagent" }
+                contextLimits = m.mapNotNull { item ->
+                    val id = item.str("id") ?: return@mapNotNull null
+                    val limit = item.obj("limit")?.long("context") ?: 0L
+                    if (limit > 0) id to limit else null
+                }.toMap()
                 models = m.filter {
                     val enabled = (it["enabled"] as? JsonPrimitive)?.booleanOrNull
                     val status = it.str("status")
                     (enabled != false) && (status == null || status == "active")
                 }
+                commands = cmds
             } catch (_: Exception) {
             }
         }

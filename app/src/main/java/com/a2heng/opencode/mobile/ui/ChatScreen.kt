@@ -9,6 +9,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -36,7 +42,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -51,9 +60,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -62,6 +74,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.UTurnLeft
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -105,6 +119,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.Attachment
+import com.a2heng.opencode.mobile.data.CommandInfo
 import com.a2heng.opencode.mobile.data.FormField
 import com.a2heng.opencode.mobile.data.FormInfo
 import com.a2heng.opencode.mobile.data.Msg
@@ -125,6 +140,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -135,6 +151,10 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var pickAgent by remember { mutableStateOf(false) }
     var revertTarget by remember { mutableStateOf<Msg?>(null) }
     var detailTool by remember { mutableStateOf<Part.Tool?>(null) }
+    var showCommands by remember { mutableStateOf(false) }
+    var commandFor by remember { mutableStateOf<CommandInfo?>(null) }
+    var commandArgs by remember { mutableStateOf("") }
+    var showFilePicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -157,10 +177,26 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         }
     }
 
+    LaunchedEffect(session.id) { model.loadMeta() }
+
     val pendingPermissions = model.permissions.filter { it.sessionID == session.id }
     val pendingForms = model.forms.filter { it.sessionID == session.id }
     // 通过 API 新建的会话在服务端没有 model 字段，从最后一条 assistant 消息里补
     val effectiveModel = session.model ?: model.messages.lastOrNull { it.model != null }?.model
+    val lastTokens = model.messages.lastOrNull { it.isAssistant && it.tokens != null }?.tokens
+    val contextLimit = effectiveModel?.let { model.contextLimits[it.id] } ?: 0L
+    val contextUsed = (lastTokens?.input ?: 0L) + (lastTokens?.cacheRead ?: 0L)
+    val contextPct = if (contextLimit > 0 && contextUsed > 0) {
+        (contextUsed * 100.0 / contextLimit).coerceIn(0.0, 100.0)
+    } else {
+        null
+    }
+    val contextColor = when {
+        contextPct == null -> MaterialTheme.colorScheme.onSurfaceVariant
+        contextPct >= 75 -> MaterialTheme.colorScheme.error
+        contextPct >= 50 -> Warn
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
 
     BackHandler {
         model.closeSession()
@@ -182,17 +218,29 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 title = {
                     Column {
                         Text(session.shortTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            listOfNotNull(
-                                effectiveModel?.label?.takeIf { it.isNotBlank() } ?: "默认模型",
-                                session.agent.takeIf { it.isNotBlank() },
-                                if (model.sending) model.statusLine.ifBlank { "运行中…" } else null,
-                            ).joinToString(" · "),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (model.sending) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                listOfNotNull(
+                                    effectiveModel?.label?.takeIf { it.isNotBlank() } ?: "默认模型",
+                                    session.agent.takeIf { it.isNotBlank() },
+                                    if (model.sending) model.statusLine.ifBlank { "运行中…" } else null,
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (model.sending) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (contextPct != null) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "ctx ${contextPct.roundToInt()}%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = contextColor,
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
@@ -277,6 +325,8 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 onChange = { input = it },
                 attachments = attachments,
                 onPickImage = { imagePicker.launch("image/*") },
+                onPickFile = { showFilePicker = true },
+                onPickCommand = { showCommands = true },
                 onRemoveAttachment = { attachments.removeAt(it) },
                 onSend = {
                     val text = input.trim()
@@ -357,19 +407,21 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             }
                         }
                         items(model.messages.asReversed(), key = { it.id }) { msg ->
-                            MessageItem(
-                                msg = msg,
-                                detail = model.detailLevel,
-                                onLongPressUser = { revertTarget = it },
-                                onOpenTool = { detailTool = it },
-                            )
+                            Box(Modifier.animateItem()) {
+                                MessageItem(
+                                    msg = msg,
+                                    detail = model.detailLevel,
+                                    onLongPressUser = { revertTarget = it },
+                                    onOpenTool = { detailTool = it },
+                                )
+                            }
                         }
                     }
                     if (listState.firstVisibleItemIndex > 2) {
                         SmallScrollToBottom(
                             modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(end = 14.dp, bottom = 12.dp),
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 12.dp),
                         ) {
                             scope.launch { listState.animateScrollToItem(0) }
                         }
@@ -451,6 +503,102 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     detailTool?.let { tool ->
         ToolDetailDialog(tool) { detailTool = null }
     }
+
+    if (showFilePicker) {
+        FileMentionDialog(
+            model = model,
+            startDir = session.directory.ifBlank { model.homeDir },
+            onDismiss = { showFilePicker = false },
+        ) { absolute ->
+            val base = session.directory.ifBlank { model.homeDir }
+            val rel = if (base.isNotBlank() && absolute.startsWith("$base/")) {
+                absolute.removePrefix("$base/")
+            } else {
+                absolute
+            }
+            input = (input.trimEnd() + " @" + rel + " ").trimStart()
+        }
+    }
+
+    if (showCommands) {
+        ModalBottomSheet(onDismissRequest = { showCommands = false }) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Text("命令", style = MaterialTheme.typography.titleMedium)
+                if (model.commands.isEmpty()) {
+                    Text(
+                        "当前目录没有可用命令",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp),
+                    )
+                } else {
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                        items(model.commands, key = { it.name }) { cmd ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickableNoRipple {
+                                        showCommands = false
+                                        commandArgs = ""
+                                        commandFor = cmd
+                                    }
+                                    .padding(vertical = 10.dp),
+                            ) {
+                                Column {
+                                    Text("/${cmd.name}", style = MaterialTheme.typography.bodyLarge)
+                                    if (cmd.description.isNotBlank()) {
+                                        Text(
+                                            cmd.description,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    commandFor?.let { cmd ->
+        AlertDialog(
+            onDismissRequest = { commandFor = null },
+            title = { Text("/${cmd.name}") },
+            text = {
+                Column {
+                    if (cmd.description.isNotBlank()) {
+                        Text(
+                            cmd.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    OutlinedTextField(
+                        value = commandArgs,
+                        onValueChange = { commandArgs = it },
+                        placeholder = { Text("参数（可留空）") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 4,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val args = commandArgs.trim()
+                    commandFor = null
+                    model.runCommand(cmd.name, args, attachments.toList())
+                    attachments.clear()
+                }) { Text("执行") }
+            },
+            dismissButton = {
+                TextButton(onClick = { commandFor = null }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -461,9 +609,13 @@ private fun ChatComposer(
     onChange: (String) -> Unit,
     attachments: List<Attachment>,
     onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
+    onPickCommand: () -> Unit,
     onRemoveAttachment: (Int) -> Unit,
     onSend: () -> Unit,
 ) {
+    var actionsOpen by rememberSaveable { mutableStateOf(false) }
+    val rotation by animateFloatAsState(if (actionsOpen) 45f else 0f, label = "plus-rotate")
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
         Column(
             Modifier
@@ -515,54 +667,114 @@ private fun ChatComposer(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                IconButton(
-                    onClick = onPickImage,
-                    modifier = Modifier.size(42.dp),
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        .clickableNoRipple { actionsOpen = !actionsOpen },
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Rounded.AddPhotoAlternate,
-                        contentDescription = "添加图片",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp),
+                        Icons.Rounded.Add,
+                        contentDescription = if (actionsOpen) "收起" else "添加",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(22.dp).rotate(rotation),
                     )
                 }
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = onChange,
-                    placeholder = {
-                        Text(
-                            when {
-                                !busy -> "发消息给 opencode…"
-                                model.sendMode == "steer" -> "运行中 · 发送将插入"
-                                model.sendMode == "interrupt" -> "运行中 · 发送将中断"
-                                else -> "运行中 · 发送将排队"
-                            },
-                        )
-                    },
+                AnimatedVisibility(
+                    visible = !actionsOpen,
                     modifier = Modifier.weight(1f),
-                    maxLines = 5,
-                    shape = RoundedCornerShape(18.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                )
-                Spacer(Modifier.width(8.dp))
-                FloatingActionButton(
-                    onClick = onSend,
-                    modifier = Modifier.size(48.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = CircleShape,
+                    enter = androidx.compose.animation.expandHorizontally(expandFrom = Alignment.End) +
+                        androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkHorizontally(shrinkTowards = Alignment.End) +
+                        androidx.compose.animation.fadeOut(),
                 ) {
-                    Icon(
-                        Icons.Rounded.ArrowUpward,
-                        contentDescription = "发送",
-                        modifier = Modifier.size(22.dp),
-                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        OutlinedTextField(
+                            value = value,
+                            onValueChange = onChange,
+                            placeholder = {
+                                Text(
+                                    when {
+                                        !busy -> "发消息给 opencode…"
+                                        model.sendMode == "steer" -> "运行中 · 发送将插入"
+                                        model.sendMode == "interrupt" -> "运行中 · 发送将中断"
+                                        else -> "运行中 · 发送将排队"
+                                    },
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            maxLines = 4,
+                            shape = RoundedCornerShape(18.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FloatingActionButton(
+                            onClick = onSend,
+                            modifier = Modifier.size(48.dp),
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            shape = CircleShape,
+                        ) {
+                            Icon(
+                                Icons.Rounded.ArrowUpward,
+                                contentDescription = "发送",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                }
+                AnimatedVisibility(
+                    visible = actionsOpen,
+                    modifier = Modifier.weight(1f),
+                    enter = androidx.compose.animation.expandHorizontally(expandFrom = Alignment.Start) +
+                        androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkHorizontally(shrinkTowards = Alignment.Start) +
+                        androidx.compose.animation.fadeOut(),
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ComposerAction(Icons.Rounded.AddPhotoAlternate, "图片", 28, MaterialTheme.colorScheme.primary, actionsOpen, 0, onPickImage)
+                        ComposerAction(Icons.Rounded.AttachFile, "文件", 24, MaterialTheme.colorScheme.onSurfaceVariant, actionsOpen, 1, onPickFile)
+                        ComposerAction(Icons.Rounded.Terminal, "命令", 24, MaterialTheme.colorScheme.onSurfaceVariant, actionsOpen, 2, onPickCommand)
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ComposerAction(
+    icon: ImageVector,
+    label: String,
+    size: Int,
+    tint: Color,
+    visible: Boolean,
+    index: Int,
+    onClick: () -> Unit,
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, delayMillis = index * 45),
+        label = "action-$label",
+    )
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(44.dp).alpha(alpha),
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(size.dp))
     }
 }
 
@@ -739,6 +951,7 @@ private fun ToolBlock(part: Part.Tool, detail: String, onOpen: (Part.Tool) -> Un
             val extra = when {
                 hasImages -> "图片"
                 hasDiff -> "diff"
+                part.payload.isNotBlank() -> "内容"
                 hasOutput -> "输出"
                 hasError -> "错误"
                 else -> ""
@@ -753,6 +966,7 @@ private fun ToolBlock(part: Part.Tool, detail: String, onOpen: (Part.Tool) -> Un
 
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isEditTool = part.name in setOf("edit", "patch", "multiedit")
+    val isWriteTool = part.name == "write"
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         shape = RoundedCornerShape(10.dp),
@@ -821,7 +1035,29 @@ private fun ToolBlock(part: Part.Tool, detail: String, onOpen: (Part.Tool) -> Un
                         DiffView(part.diff)
                     }
                 }
-                if (hasOutput && !isEditTool) {
+                if (isWriteTool && part.payload.isNotBlank()) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp)
+                            .padding(top = 5.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                RoundedCornerShape(6.dp),
+                            )
+                            .verticalScroll(rememberScrollState())
+                            .padding(8.dp),
+                    ) {
+                        Text(
+                            part.payload.take(12000),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                if (hasOutput && !isEditTool && !isWriteTool) {
                     Box(
                         Modifier
                             .fillMaxWidth()
@@ -972,7 +1208,9 @@ private fun LiveBubble(model: AppModel, detail: String) {
 private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -981,32 +1219,65 @@ private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onWithdraw()
             },
-            modifier = Modifier.size(32.dp),
+            modifier = Modifier.size(40.dp),
         ) {
             Icon(
-                Icons.AutoMirrored.Rounded.ArrowBack,
+                Icons.Rounded.UTurnLeft,
                 contentDescription = "撤回编辑",
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
             border = androidx.compose.foundation.BorderStroke(
                 1.dp,
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
             ),
-            modifier = Modifier.widthIn(max = 320.dp),
+            modifier = Modifier.widthIn(max = 300.dp),
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                    )
+                    AnimatedEllipsis()
+                }
                 Text(
                     "pending",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                 )
-                Text(text, style = MaterialTheme.typography.bodyMedium)
             }
+        }
+    }
+}
+
+@Composable
+private fun AnimatedEllipsis() {
+    val transition = rememberInfiniteTransition(label = "pending-ellipsis")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = androidx.compose.animation.core.LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+        ),
+        label = "pending-dots",
+    )
+    val count = (phase.toInt() % 3) + 1
+    Row {
+        repeat(3) { index ->
+            Text(
+                ".",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                    alpha = if (index < count) 0.6f else 0.12f,
+                ),
+            )
         }
     }
 }

@@ -169,6 +169,44 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun inbox(sessionID: String): List<JsonObject> =
         unwrapArray(get("/api/session/$sessionID/inbox")).mapNotNull { it as? JsonObject }
 
+    suspend fun commands(): List<CommandInfo> =
+        unwrapArray(get("/api/command")).mapNotNull { item ->
+            val o = item as? JsonObject ?: return@mapNotNull null
+            val name = o.str("name") ?: return@mapNotNull null
+            CommandInfo(name, o.str("description") ?: "")
+        }
+
+    suspend fun runCommand(
+        sessionID: String,
+        name: String,
+        text: String,
+        delivery: String? = null,
+        attachments: List<Attachment> = emptyList(),
+    ) {
+        val body = buildJsonObject {
+            put("name", JsonPrimitive(name))
+            put("text", JsonPrimitive(text))
+            if (delivery != null) put("delivery", JsonPrimitive(delivery))
+            if (attachments.isNotEmpty()) {
+                put(
+                    "files",
+                    buildJsonArray {
+                        attachments.forEach { a ->
+                            add(
+                                buildJsonObject {
+                                    put("uri", JsonPrimitive("data:${a.mime};base64,${a.base64}"))
+                                    put("mime", JsonPrimitive(a.mime))
+                                    put("name", JsonPrimitive(a.name))
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+        post("/api/session/$sessionID/command", body)
+    }
+
     suspend fun cancelInbox(sessionID: String, inboxID: String) {
         delete("/api/session/$sessionID/inbox/$inboxID")
     }

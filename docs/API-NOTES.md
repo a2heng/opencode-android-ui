@@ -131,5 +131,7 @@ data: {"id":"evt_...","created":...,"type":"session.text.delta","data":{...}}
 ## 其他
 
 - `GET /api/info` → `{ version, urls, capabilities }`
-- `GET /api/agent` / `GET /api/model` → `{ location, data: [...] }`
+- `GET /api/agent` / `GET /api/model` → `{ location, data: [...] }`；`model.limit.context` 是上下文窗口
+- `GET /api/command` → `{ data: [{ name, description }] }`
+- `POST /api/session/{id}/command`，body `{ name, text, files?, delivery? }`（`text` 是命令参数）
 - `POST /api/shell`，body `{ command, cwd? }`，用于「新建文件夹」（`mkdir -p`）这类一次性命令。

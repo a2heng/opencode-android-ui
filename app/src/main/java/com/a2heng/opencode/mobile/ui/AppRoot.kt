@@ -64,13 +64,13 @@ private val tabs = listOf(
     Tab("缓存", Icons.Rounded.Speed),
     Tab("文件", Icons.Rounded.FolderOpen),
     Tab("终端", Icons.Rounded.Terminal),
+    Tab("设置", Icons.Rounded.Settings),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(model: AppModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var showSettings by rememberSaveable { mutableStateOf(false) }
     var showNewSession by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
@@ -83,7 +83,8 @@ fun MainScreen(model: AppModel) {
                                 0 -> "会话"
                                 1 -> "缓存命中率"
                                 2 -> "文件"
-                                else -> "终端"
+                                3 -> "终端"
+                                else -> "设置"
                             },
                         )
                         Text(
@@ -94,11 +95,6 @@ fun MainScreen(model: AppModel) {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Rounded.Settings, contentDescription = "设置")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -146,14 +142,12 @@ fun MainScreen(model: AppModel) {
                 0 -> SessionsScreen(model, onNewSession = { showNewSession = true })
                 1 -> CacheScreen(model)
                 2 -> FilesScreen(model)
-                else -> TerminalScreen(model)
+                3 -> TerminalScreen(model)
+                else -> SettingsScreen(model)
             }
         }
     }
 
-    if (showSettings) {
-        SettingsDialog(model, onDismiss = { showSettings = false })
-    }
     if (showNewSession) {
         NewSessionDialog(
             model = model,
@@ -183,109 +177,6 @@ fun ErrorBanner(model: AppModel) {
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { model.clearError() }) { Text("关闭") }
-        }
-    }
-}
-
-@Composable
-private fun SettingsDialog(model: AppModel, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("设置") },
-        text = {
-            Column(
-                Modifier
-                    .heightIn(max = 460.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                LabelValue("服务器", model.serverUrl)
-                LabelValue("版本", if (model.serverVersion.isBlank()) "未知" else "v${model.serverVersion}")
-                LabelValue("认证", if (model.password.isBlank()) "无密码" else "Basic · opencode")
-
-                Spacer(Modifier.height(8.dp))
-                Text("主题色", style = MaterialTheme.typography.labelLarge)
-                themePresetKeys().forEach { key ->
-                    OptionRow(
-                        title = themePresetLabel(key),
-                        subtitle = if (key == "dynamic") "Android 12+ Material You" else "预设色系",
-                        selected = model.themeMode == key,
-                    ) { model.updateThemeMode(key) }
-                }
-
-                Spacer(Modifier.height(8.dp))
-                Text("会话运行中发送消息时", style = MaterialTheme.typography.labelLarge)
-                OptionRow(
-                    title = "排队等待（pending）",
-                    subtitle = "等当前回答结束后再发，默认",
-                    selected = model.sendMode == "pending",
-                ) { model.updateSendMode("pending") }
-                OptionRow(
-                    title = "立即插入（steer）",
-                    subtitle = "马上插进当前回答，模型会看到",
-                    selected = model.sendMode == "steer",
-                ) { model.updateSendMode("steer") }
-                OptionRow(
-                    title = "中断后发送",
-                    subtitle = "先停掉当前回答，再发这条",
-                    selected = model.sendMode == "interrupt",
-                ) { model.updateSendMode("interrupt") }
-
-                Spacer(Modifier.height(8.dp))
-                Text("聊天显示精细度", style = MaterialTheme.typography.labelLarge)
-                OptionRow(
-                    title = "精简",
-                    subtitle = "工具压成一行，点一下用气泡看完整内容",
-                    selected = model.detailLevel == "compact",
-                ) { model.updateDetailLevel("compact") }
-                OptionRow(
-                    title = "完整",
-                    subtitle = "思考、diff、工具输出全部展开",
-                    selected = model.detailLevel == "full",
-                ) { model.updateDetailLevel("full") }
-
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "OpenCode Mobile v0.1.0（闭源第一版）\n数据全部来自局域网 opencode 服务，App 只在内存里做聚合。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
-        },
-        dismissButton = {
-            TextButton(onClick = {
-                model.disconnect()
-                onDismiss()
-            }) { Text("断开连接", color = MaterialTheme.colorScheme.error) }
-        },
-    )
-}
-
-@Composable
-private fun OptionRow(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickableNoRipple(onClick)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

@@ -69,7 +69,7 @@ fun FileMentionDialog(
         }
     }
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("插入文件引用") },
         text = {

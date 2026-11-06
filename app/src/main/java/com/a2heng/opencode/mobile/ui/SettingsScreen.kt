@@ -65,8 +65,8 @@ fun SettingsScreen(model: AppModel) {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("运行中发送消息时", style = MaterialTheme.typography.titleSmall)
         OptionRow(
-            title = "排队等待（pending）",
-            subtitle = "等当前回答结束后再发，默认",
+            title = "输入引导（pending）",
+            subtitle = "当前回答结束后，把输入交给模型，默认",
             selected = model.sendMode == "pending",
         ) { model.updateSendMode("pending") }
         OptionRow(

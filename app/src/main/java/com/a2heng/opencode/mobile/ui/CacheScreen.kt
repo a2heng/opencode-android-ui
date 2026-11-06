@@ -198,7 +198,7 @@ private fun CacheRow(cache: SessionCache, onClick: () -> Unit) {
 private fun CacheDetailDialog(cache: SessionCache, onDismiss: () -> Unit) {
     val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
     val t = cache.totals
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(cache.session.shortTitle, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {

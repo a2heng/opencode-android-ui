@@ -388,7 +388,7 @@ private fun SessionRow(model: AppModel, session: SessionInfo) {
     }
 
     if (confirmDelete) {
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("删除会话？") },
             text = { Text(session.shortTitle) },
@@ -404,7 +404,7 @@ private fun SessionRow(model: AppModel, session: SessionInfo) {
 
     if (rename) {
         var title by remember { mutableStateOf(session.shortTitle) }
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { rename = false },
             title = { Text("重命名会话") },
             text = {

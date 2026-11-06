@@ -84,7 +84,7 @@ fun NewSessionDialog(
         }
     }
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("新建会话") },
         text = {
@@ -225,7 +225,7 @@ fun NewSessionDialog(
     )
 
     if (creatingFolder) {
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { creatingFolder = false },
             title = { Text("新建文件夹") },
             text = {

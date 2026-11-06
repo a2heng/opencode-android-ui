@@ -66,6 +66,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -157,6 +158,19 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var showFilePicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val pendingTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pending-clock")
+    val pendingPhase by pendingTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 4f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(
+                durationMillis = 1600,
+                easing = androidx.compose.animation.core.LinearEasing,
+            ),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+        ),
+        label = "pending-phase",
+    )
     val context = LocalContext.current
     val attachments = remember { mutableStateListOf<Attachment>() }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -289,7 +303,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                             )
-                            SendModeItem("排队等待（pending）", model.sendMode == "pending") {
+                            SendModeItem("输入引导（pending）", model.sendMode == "pending") {
                                 model.updateSendMode("pending")
                                 menu = false
                             }
@@ -352,7 +366,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
             if (pendingPermissions.isNotEmpty()) {
                 // 权限请求用弹窗，避免被长对话挤到屏幕外
                 val req = pendingPermissions.first()
-                AlertDialog(
+                AppDialog(
                     onDismissRequest = { },
                     title = { Text("需要你的确认") },
                     text = {
@@ -403,7 +417,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         ),
                     ) {
                         items(model.queue.asReversed(), key = { "pending:${it.id}" }) { item ->
-                            PendingBubble(item.text) {
+                            PendingBubble(item.text, pendingPhase) {
                                 model.withdrawQueued(item.id) { restored -> input = restored }
                             }
                         }
@@ -476,7 +490,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     revertTarget?.let { msg ->
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { revertTarget = null },
             title = { Text("回退到这条消息？") },
             text = {
@@ -570,7 +584,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     commandFor?.let { cmd ->
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { commandFor = null },
             title = { Text("/${cmd.name}") },
             text = {
@@ -712,13 +726,13 @@ private fun ChatComposer(
                     ),
                 ) {
                     Row(
-                        Modifier.padding(start = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        Modifier.padding(start = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ComposerAction(Icons.Rounded.AddPhotoAlternate, "图片", 26, MaterialTheme.colorScheme.primary, onPickImage)
-                        ComposerAction(Icons.Rounded.AttachFile, "文件", 23, MaterialTheme.colorScheme.onSurfaceVariant, onPickFile)
-                        ComposerAction(Icons.Rounded.Terminal, "命令", 23, MaterialTheme.colorScheme.onSurfaceVariant, onPickCommand)
+                        ComposerAction(Icons.Rounded.NoteAdd, "文件", 24, MaterialTheme.colorScheme.primary, onPickFile)
+                        ComposerAction(Icons.Rounded.Terminal, "命令", 23, MaterialTheme.colorScheme.primary, onPickCommand)
                     }
                 }
                 Spacer(Modifier.width(8.dp))
@@ -730,9 +744,9 @@ private fun ChatComposer(
                             Text(
                                 when {
                                     !busy -> "发消息给 opencode…"
-                                    model.sendMode == "steer" -> "插入当前回答 · 引导模型"
-                                    model.sendMode == "interrupt" -> "中断当前回答后发送"
-                                    else -> "排队等待 · 结束后再发"
+                                    model.sendMode == "steer" -> "运行中 · 立即插入"
+                                    model.sendMode == "interrupt" -> "运行中 · 中断后发送"
+                                    else -> "运行中 · 输入引导"
                                 },
                                 maxLines = 1,
                             )
@@ -1088,7 +1102,7 @@ private fun ToolBlock(part: Part.Tool, detail: String, onOpen: (Part.Tool) -> Un
 @Composable
 private fun ToolDetailDialog(part: Part.Tool, onDismiss: () -> Unit) {
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1203,7 +1217,7 @@ private fun LiveBubble(model: AppModel, detail: String) {
 }
 
 @Composable
-private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
+private fun PendingBubble(text: String, phase: Float, onWithdraw: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     Row(
         Modifier
@@ -1247,7 +1261,7 @@ private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                     )
-                    AnimatedEllipsis()
+                    AnimatedEllipsis(phase)
                 }
             }
         }
@@ -1255,17 +1269,7 @@ private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
 }
 
 @Composable
-private fun AnimatedEllipsis() {
-    val transition = rememberInfiniteTransition(label = "pending-ellipsis")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
-        ),
-        label = "pending-dots",
-    )
+private fun AnimatedEllipsis(phase: Float) {
     val step = phase.toInt().coerceIn(0, 3)
     Row(verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
@@ -1273,7 +1277,7 @@ private fun AnimatedEllipsis() {
                 ".",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                    alpha = if (index <= step) 0.9f else 0.08f,
+                    alpha = if (index < step) 0.9f else 0.08f,
                 ),
             )
         }
@@ -1379,7 +1383,7 @@ private fun FormDialog(form: FormInfo, onDismiss: () -> Unit, onSubmit: (JsonObj
     val bools = remember(form.id) { mutableStateMapOf<String, Boolean>() }
     val multis = remember(form.id) { mutableStateMapOf<String, MutableList<String>>() }
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(form.title) },
         text = {

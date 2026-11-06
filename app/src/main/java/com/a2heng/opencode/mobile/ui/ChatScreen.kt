@@ -726,15 +726,17 @@ private fun ChatComposer(
                     value = value,
                     onValueChange = onChange,
                     placeholder = {
-                        Text(
-                            when {
-                                !busy -> "发消息给 opencode…"
-                                model.sendMode == "steer" -> "运行中 · 发送将插入"
-                                model.sendMode == "interrupt" -> "运行中 · 发送将中断"
-                                else -> "运行中 · 发送将排队"
-                            },
-                            maxLines = 1,
-                        )
+                        if (!actionsOpen) {
+                            Text(
+                                when {
+                                    !busy -> "发消息给 opencode…"
+                                    model.sendMode == "steer" -> "插入当前回答 · 引导模型"
+                                    model.sendMode == "interrupt" -> "中断当前回答后发送"
+                                    else -> "排队等待 · 结束后再发"
+                                },
+                                maxLines = 1,
+                            )
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
@@ -1218,12 +1220,10 @@ private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
             modifier = Modifier.size(40.dp),
         ) {
             Icon(
-                Icons.Rounded.UTurnLeft,
+                androidx.compose.ui.res.painterResource(com.a2heng.opencode.mobile.R.drawable.ic_return_horizontal),
                 contentDescription = "撤回编辑",
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .size(22.dp)
-                    .rotate(90f),
+                modifier = Modifier.size(22.dp),
             )
         }
         Surface(

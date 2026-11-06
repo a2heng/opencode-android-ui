@@ -6,6 +6,9 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -100,6 +103,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -154,6 +158,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var detailTool by remember { mutableStateOf<Part.Tool?>(null) }
     var showCommands by remember { mutableStateOf(false) }
     var showFilePicker by remember { mutableStateOf(false) }
+    var backProgress by remember { mutableFloatStateOf(0f) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val pendingTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pending-clock")
@@ -222,12 +227,33 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-    BackHandler {
-        model.closeSession()
-        model.refreshSessions()
+    val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
+    if (backOwner != null) {
+        PredictiveBackHandler { events ->
+            try {
+                events.collect { event -> backProgress = event.progress }
+                model.closeSession()
+                model.refreshSessions()
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                backProgress = 0f
+                throw cancel
+            }
+        }
+    } else {
+        BackHandler {
+            model.closeSession()
+            model.refreshSessions()
+        }
     }
 
     Scaffold(
+        modifier = Modifier.graphicsLayer {
+            val scale = 1f - 0.05f * backProgress
+            scaleX = scale
+            scaleY = scale
+            alpha = 1f - 0.15f * backProgress
+            translationX = 28.dp.toPx() * backProgress
+        },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
@@ -308,7 +334,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                             )
-                            SendModeItem("输入引导（pending）", model.sendMode == "pending") {
+                            SendModeItem("队列等待（pending）", model.sendMode == "pending") {
                                 model.updateSendMode("pending")
                                 menu = false
                             }
@@ -736,9 +762,9 @@ private fun ChatComposer(
                             Text(
                                 when {
                                     !busy -> "发消息给 opencode…"
-                                    model.sendMode == "steer" -> "运行中 · 立即插入"
+                                    model.sendMode == "steer" -> "运行中 · 引导当前回答"
                                     model.sendMode == "interrupt" -> "运行中 · 中断后发送"
-                                    else -> "运行中 · 输入引导"
+                                    else -> "运行中 · 结束后再发"
                                 },
                                 maxLines = 1,
                             )

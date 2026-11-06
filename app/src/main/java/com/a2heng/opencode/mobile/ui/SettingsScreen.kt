@@ -65,18 +65,18 @@ fun SettingsScreen(model: AppModel) {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("运行中发送消息时", style = MaterialTheme.typography.titleSmall)
         OptionRow(
-            title = "输入引导（pending）",
-            subtitle = "当前回答结束后，把输入交给模型，默认",
+            title = "队列等待（pending）",
+            subtitle = "不打断当前回答；这轮结束后作为下一轮输入（默认）",
             selected = model.sendMode == "pending",
         ) { model.updateSendMode("pending") }
         OptionRow(
             title = "立即插入（steer）",
-            subtitle = "马上插进当前回答，模型会看到",
+            subtitle = "在下一个步骤前插入，用来引导当前这轮回答",
             selected = model.sendMode == "steer",
         ) { model.updateSendMode("steer") }
         OptionRow(
             title = "中断后发送",
-            subtitle = "先停掉当前回答，再发这条",
+            subtitle = "先中断当前回答，再单独发送这条（客户端行为）",
             selected = model.sendMode == "interrupt",
         ) { model.updateSendMode("interrupt") }
 

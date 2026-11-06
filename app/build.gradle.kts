@@ -74,6 +74,12 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        debug {
+            // 与正式包共存：不同 applicationId + 不同签名
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "OpenCode Dev")
+        }
     }
 
     compileOptions {

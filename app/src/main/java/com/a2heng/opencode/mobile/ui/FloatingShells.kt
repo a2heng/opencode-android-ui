@@ -18,7 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,12 +60,9 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
 
     Box(modifier.offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }) {
         if (!expanded) {
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                shape = CircleShape,
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .size(46.dp)
+            Box(
+                Modifier
+                    .size(52.dp)
                     .pointerInput(Unit) {
                         detectDragGestures { change, drag ->
                             change.consume()
@@ -74,29 +71,38 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                     }
                     .clickableNoRipple { expanded = true },
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Rounded.Terminal,
-                        contentDescription = "后台 shell",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    if (model.shells.size > 1) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.error,
-                            shape = CircleShape,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .align(Alignment.TopEnd),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    model.shells.size.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onError,
-                                )
-                            }
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = CircleShape,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .align(Alignment.BottomStart),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Rounded.PlaylistPlay,
+                            contentDescription = "后台 shell",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+                if (model.shells.size > 1) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.error,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .size(19.dp)
+                            .align(Alignment.TopEnd),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                model.shells.size.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onError,
+                            )
                         }
                     }
                 }
@@ -122,7 +128,7 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            Icons.Rounded.Terminal,
+                            Icons.Rounded.PlaylistPlay,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary,
@@ -153,8 +159,13 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                             Modifier
                                 .fillMaxWidth()
                                 .clickableNoRipple {
-                                    selected = shell.id
-                                    scope.launch { output = model.loadShellOutput(shell.id) }
+                                    if (selected == shell.id) {
+                                        selected = null
+                                        output = ""
+                                    } else {
+                                        selected = shell.id
+                                        scope.launch { output = model.loadShellOutput(shell.id) }
+                                    }
                                 }
                                 .padding(vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -169,7 +180,7 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                if (selected == shell.id) "查看中" else "运行中",
+                                if (selected == shell.id) "收起" else "查看",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )

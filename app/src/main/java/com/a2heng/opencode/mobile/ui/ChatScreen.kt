@@ -153,8 +153,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var revertTarget by remember { mutableStateOf<Msg?>(null) }
     var detailTool by remember { mutableStateOf<Part.Tool?>(null) }
     var showCommands by remember { mutableStateOf(false) }
-    var commandFor by remember { mutableStateOf<CommandInfo?>(null) }
-    var commandArgs by remember { mutableStateOf("") }
     var showFilePicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -164,7 +162,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         targetValue = 4f,
         animationSpec = androidx.compose.animation.core.infiniteRepeatable(
             animation = androidx.compose.animation.core.tween(
-                durationMillis = 1600,
+                durationMillis = 2400,
                 easing = androidx.compose.animation.core.LinearEasing,
             ),
             repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
@@ -351,7 +349,18 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                     val text = input.trim()
                     if (text.isNotEmpty() || attachments.isNotEmpty()) {
                         input = ""
-                        model.sendPrompt(text, attachments.toList())
+                        val cmd = model.commands.firstOrNull {
+                            text == "/" + it.name || text.startsWith("/" + it.name + " ")
+                        }
+                        if (cmd != null) {
+                            model.runCommand(
+                                cmd.name,
+                                text.removePrefix("/" + cmd.name).trim(),
+                                attachments.toList(),
+                            )
+                        } else {
+                            model.sendPrompt(text, attachments.toList())
+                        }
                         attachments.clear()
                         scope.launch { listState.animateScrollToItem(0) }
                     }
@@ -559,8 +568,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                     .fillMaxWidth()
                                     .clickableNoRipple {
                                         showCommands = false
-                                        commandArgs = ""
-                                        commandFor = cmd
+                                        input = "/" + cmd.name + " "
                                     }
                                     .padding(vertical = 10.dp),
                             ) {
@@ -583,42 +591,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         }
     }
 
-    commandFor?.let { cmd ->
-        AppDialog(
-            onDismissRequest = { commandFor = null },
-            title = { Text("/${cmd.name}") },
-            text = {
-                Column {
-                    if (cmd.description.isNotBlank()) {
-                        Text(
-                            cmd.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    OutlinedTextField(
-                        value = commandArgs,
-                        onValueChange = { commandArgs = it },
-                        placeholder = { Text("参数（可留空）") },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 4,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val args = commandArgs.trim()
-                    commandFor = null
-                    model.runCommand(cmd.name, args, attachments.toList())
-                    attachments.clear()
-                }) { Text("执行") }
-            },
-            dismissButton = {
-                TextButton(onClick = { commandFor = null }) { Text("取消") }
-            },
-        )
-    }
 }
 
 @Composable

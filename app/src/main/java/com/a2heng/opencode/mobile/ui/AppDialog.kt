@@ -37,17 +37,20 @@ fun AppDialog(
     dismissButton: (@Composable () -> Unit)? = null,
 ) {
     var backProgress by remember { mutableFloatStateOf(0f) }
+    val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        PredictiveBackHandler { back ->
-            try {
-                back.collect { event -> backProgress = event.progress }
-                onDismissRequest()
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                backProgress = 0f
-                throw cancel
+        if (backOwner != null) {
+            PredictiveBackHandler { back ->
+                try {
+                    back.collect { event -> backProgress = event.progress }
+                    onDismissRequest()
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    backProgress = 0f
+                    throw cancel
+                }
             }
         }
         Surface(

@@ -135,14 +135,35 @@ class OcClient(rawBase: String, private val password: String) {
         unwrapArray(get("/api/session/$sessionID/message"))
             .mapNotNull { (it as? JsonObject)?.let(::parseMessage) }
 
-    suspend fun prompt(sessionID: String, text: String, delivery: String? = null) {
-        post(
-            "/api/session/$sessionID/prompt",
-            buildJsonObject {
-                put("text", JsonPrimitive(text))
-                if (delivery != null) put("delivery", JsonPrimitive(delivery))
-            },
-        )
+    suspend fun prompt(
+        sessionID: String,
+        text: String,
+        delivery: String? = null,
+        attachments: List<Attachment> = emptyList(),
+    ) {
+        val body = buildJsonObject {
+            put("text", JsonPrimitive(text))
+            if (delivery != null) put("delivery", JsonPrimitive(delivery))
+            if (attachments.isNotEmpty()) {
+                put(
+                    "files",
+                    buildJsonArray {
+                        attachments.forEach { a ->
+                            add(
+                                buildJsonObject {
+                                    // v2.2.5 实际校验的是 files[].uri（data URI），
+                                    // openapi.json 里的 data/source 反而会报 Missing key uri
+                                    put("uri", JsonPrimitive("data:${a.mime};base64,${a.base64}"))
+                                    put("mime", JsonPrimitive(a.mime))
+                                    put("name", JsonPrimitive(a.name))
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+        post("/api/session/$sessionID/prompt", body)
     }
 
     suspend fun inbox(sessionID: String): List<JsonObject> =

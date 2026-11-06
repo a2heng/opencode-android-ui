@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -66,8 +67,13 @@ fun SessionsScreen(model: AppModel, onNewSession: () -> Unit) {
 
     val running = remember(list, model.activeIds) { list.filter { model.isActive(it.id) } }
     val rest = remember(list, model.activeIds) { list.filterNot { model.isActive(it.id) } }
-    val groups = remember(rest) {
-        rest.groupBy { it.directory.ifBlank { "（默认目录）" } }
+    // 没有运行中的会话时，顶部用「最近」补位，避免一大片空白
+    val recent = remember(rest, running) { if (running.isEmpty()) rest.take(3) else emptyList() }
+    val groupedRest = remember(rest, recent) {
+        if (recent.isEmpty()) rest else rest.drop(recent.size)
+    }
+    val groups = remember(groupedRest) {
+        groupedRest.groupBy { it.directory.ifBlank { "（默认目录）" } }
             .entries
             .sortedByDescending { entry -> entry.value.maxOf { it.updated } }
     }
@@ -135,6 +141,13 @@ fun SessionsScreen(model: AppModel, onNewSession: () -> Unit) {
                         items(running, key = { "run:${it.id}" }) { session ->
                             SessionRow(model, session)
                         }
+                    } else if (recent.isNotEmpty()) {
+                        stickyHeader(key = "recent") {
+                            RecentHeader()
+                        }
+                        items(recent, key = { "recent:${it.id}" }) { session ->
+                            SessionRow(model, session)
+                        }
                     }
                     if (grouped) {
                         groups.forEach { (dir, items) ->
@@ -193,6 +206,36 @@ private fun RunningHeader(count: Int) {
             "$count",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun RecentHeader() {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Rounded.History,
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(6.dp))
+        Text(
+            "最近",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "没有运行中的会话",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         )
     }
 }

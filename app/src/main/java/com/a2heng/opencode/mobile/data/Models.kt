@@ -145,6 +145,10 @@ sealed interface Part {
         val input: String,
         val output: String,
         val error: String,
+        val diff: String = "",
+        val images: List<String> = emptyList(),
+        val exitCode: Long? = null,
+        val truncated: Boolean = false,
     ) : Part
 }
 
@@ -154,6 +158,7 @@ data class Msg(
     val created: Long,
     val text: String = "",
     val parts: List<Part> = emptyList(),
+    val images: List<String> = emptyList(),
     val tokens: Tokens? = null,
     val cost: Double = 0.0,
     val model: ModelRef? = null,
@@ -177,8 +182,7 @@ private fun toolContentText(state: JsonObject): String {
         } else {
             val uri = o.str("uri")
             if (uri != null && uri.startsWith("data:")) {
-                if (sb.isNotEmpty()) sb.append('\n')
-                sb.append(if (uri.startsWith("data:image")) "[图片]" else "[附件]")
+                // 图片/附件由 ChatScreen 单独渲染，这里不要重复成文字占位
                 continue
             }
             val path = o.str("path") ?: o.str("filename")
@@ -206,6 +210,19 @@ private fun toolInputText(state: JsonObject): String {
     }
 }
 
+private fun parseToolImages(state: JsonObject): List<String> =
+    state.arr("content").mapNotNull { item ->
+        val o = item as? JsonObject ?: return@mapNotNull null
+        val uri = o.str("uri") ?: return@mapNotNull null
+        val mime = o.str("mime") ?: ""
+        if (o.str("type") == "file" && (mime.startsWith("image/") || uri.startsWith("data:image"))) uri else null
+    }.take(2)
+
+private fun parseToolDiff(state: JsonObject): String {
+    val files = state.obj("metadata")?.arr("files") ?: return ""
+    return files.mapNotNull { (it as? JsonObject)?.str("patch") }.joinToString("\n")
+}
+
 private fun parsePart(e: JsonElement): Part? {
     val o = e as? JsonObject ?: return null
     return when (o.str("type")) {
@@ -213,6 +230,7 @@ private fun parsePart(e: JsonElement): Part? {
         "reasoning" -> Part.Reasoning(o.str("text") ?: "")
         "tool" -> {
             val state = o.obj("state") ?: JsonObject(emptyMap())
+            val meta = state.obj("metadata")
             Part.Tool(
                 toolID = o.str("id") ?: "",
                 name = o.str("name") ?: "tool",
@@ -220,6 +238,10 @@ private fun parsePart(e: JsonElement): Part? {
                 input = toolInputText(state),
                 output = toolContentText(state),
                 error = state.obj("error")?.str("message") ?: state.str("error") ?: "",
+                diff = parseToolDiff(state),
+                images = parseToolImages(state),
+                exitCode = meta?.let { if ("exit" in it) it.long("exit") else null },
+                truncated = meta?.bool("truncated") ?: false,
             )
         }
         else -> null
@@ -236,6 +258,12 @@ fun parseMessage(o: JsonObject): Msg {
             role = "user",
             created = created,
             text = o.str("text") ?: "",
+            images = o.arr("files").mapNotNull { item ->
+                val f = item as? JsonObject ?: return@mapNotNull null
+                val mime = f.str("mime") ?: ""
+                val data = f.str("data") ?: return@mapNotNull null
+                if (mime.startsWith("image/")) "data:$mime;base64,$data" else null
+            },
         )
         "assistant" -> Msg(
             id = o.str("id") ?: "",
@@ -334,6 +362,9 @@ data class FsEntry(val path: String, val type: String) {
 }
 
 data class Queued(val id: String, val text: String)
+
+/** 通过 prompt 的 files 字段发送的图片（inline base64）。 */
+data class Attachment(val name: String, val mime: String, val base64: String)
 
 data class PtyInfo(
     val id: String,

@@ -56,9 +56,19 @@ tokens：`{ input, output, reasoning, cache: { read, write } }`；
 ```
 
 - `delivery`: `"steer"`（运行中直接插入）或 `"queue"`（空闲后处理）。**不传时由服务端决定**；
-  客户端在会话运行中默认传 `queue`，避免顶掉当前回答。
+  客户端在会话运行中按设置选择，默认 `queue`。
 - 队列查询：`GET /api/session/{id}/inbox`（`type: user` 的项就是待发送消息）
 - 取消队列项：`DELETE /api/session/{id}/inbox/{inboxID}`
+
+### 图片附件（v2.2.5 实测）
+
+```json
+{ "text": "看看这张图", "files": [{ "uri": "data:image/jpeg;base64,...", "mime": "image/jpeg", "name": "a.jpg" }] }
+```
+
+⚠️ **`openapi.json` 写的是 `files[].data` + `source: {type:"inline"}`，但 v2.2.5 实际只认 `files[].uri`**，
+传 `data` 会 400：`Missing key at ["files"][0]["uri"]`。服务端返回的消息里又会把附件规范成
+`{ data, mime, name }`，客户端渲染时按这个读。
 
 ## 事件流
 

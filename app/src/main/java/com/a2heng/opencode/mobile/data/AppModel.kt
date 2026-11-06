@@ -46,6 +46,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var homeDir by mutableStateOf("")
         private set
 
+    /** 运行中发送方式：pending（排队，默认）/ steer（立即插入）/ interrupt（中断后发送） */
+    var sendMode by mutableStateOf(prefs.getString("send_mode", "pending") ?: "pending")
+        private set
+
+    /** 聊天显示精细度：compact / normal / verbose */
+    var detailLevel by mutableStateOf(prefs.getString("detail_level", "normal") ?: "normal")
+        private set
+
     var client: OcClient? = null
         private set
 
@@ -195,6 +203,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         lastError = null
     }
 
+    fun updateSendMode(mode: String) {
+        sendMode = mode
+        prefs.edit().putString("send_mode", mode).apply()
+    }
+
+    fun updateDetailLevel(level: String) {
+        detailLevel = level
+        prefs.edit().putString("detail_level", level).apply()
+    }
+
     // =========================================================================
     // 会话
     // =========================================================================
@@ -270,31 +288,48 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }.sortedBy { it.created }
     }
 
-    fun sendPrompt(text: String) {
+    fun sendPrompt(text: String, attachments: List<Attachment> = emptyList()) {
         val c = client ?: return
         val s = current ?: return
-        if (text.isBlank()) return
-        val queue = isActive(s.id)
+        if (text.isBlank() && attachments.isEmpty()) return
+        val busy = isActive(s.id)
+        val mode = if (!busy) "direct" else sendMode
         lastError = null
-        if (!queue) {
+        if (mode != "queue" && mode != "steer") {
             sending = true
             liveText = ""
             liveReasoning = ""
         }
+        val bodyText = text.ifBlank { if (attachments.isNotEmpty()) "请看这张图片" else "" }
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { c.prompt(s.id, text, if (queue) "queue" else null) }
-                if (queue) {
-                    statusLine = "已加入队列"
-                    loadInbox()
-                } else {
-                    delay(350)
-                    loadMessages(silent = true)
+                when (mode) {
+                    "queue" -> {
+                        withContext(Dispatchers.IO) { c.prompt(s.id, bodyText, "queue", attachments) }
+                        statusLine = "已加入队列"
+                        loadInbox()
+                    }
+                    "steer" -> {
+                        withContext(Dispatchers.IO) { c.prompt(s.id, bodyText, "steer", attachments) }
+                        statusLine = "已插入当前回答"
+                    }
+                    "interrupt" -> {
+                        withContext(Dispatchers.IO) {
+                            c.interrupt(s.id)
+                            delay(300)
+                            c.prompt(s.id, bodyText, null, attachments)
+                        }
+                    }
+                    else -> {
+                        withContext(Dispatchers.IO) { c.prompt(s.id, bodyText, null, attachments) }
+                        delay(350)
+                        loadMessages(silent = true)
+                    }
                 }
                 refreshSessions()
             } catch (e: Exception) {
                 lastError = e.message
-                if (!queue) sending = false
+                if (mode != "queue" && mode != "steer") sending = false
             }
         }
     }

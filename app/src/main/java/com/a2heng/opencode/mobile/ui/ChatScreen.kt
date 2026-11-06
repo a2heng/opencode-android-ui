@@ -1,6 +1,14 @@
 package com.a2heng.opencode.mobile.ui
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -16,6 +25,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -27,7 +41,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
@@ -39,6 +56,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,12 +68,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,6 +92,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.a2heng.opencode.mobile.data.AppModel
+import com.a2heng.opencode.mobile.data.Attachment
 import com.a2heng.opencode.mobile.data.FormField
 import com.a2heng.opencode.mobile.data.FormInfo
 import com.a2heng.opencode.mobile.data.Msg
@@ -87,6 +109,10 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,6 +123,17 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var pickAgent by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val attachments = remember { mutableStateListOf<Attachment>() }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val att = withContext(Dispatchers.IO) { loadImageAttachment(context, uri) }
+                if (att != null) attachments.add(att)
+            }
+        }
+    }
 
     val pendingPermissions = model.permissions.filter { it.sessionID == session.id }
     val pendingForms = model.forms.filter { it.sessionID == session.id }
@@ -106,13 +143,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     BackHandler {
         model.closeSession()
         model.refreshSessions()
-    }
-
-    LaunchedEffect(model.messages.size, model.liveText.length, model.liveReasoning.length) {
-        val total = model.messages.size + 1
-        if (total > 0) {
-            runCatching { listState.scrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(0)) }
-        }
     }
 
     Scaffold(
@@ -176,6 +206,44 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                     model.loadMessages()
                                 },
                             )
+                            HorizontalDivider()
+                            Text(
+                                "运行中发送",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                            SendModeItem("排队等待（pending）", model.sendMode == "pending") {
+                                model.updateSendMode("pending")
+                                menu = false
+                            }
+                            SendModeItem("立即插入（steer）", model.sendMode == "steer") {
+                                model.updateSendMode("steer")
+                                menu = false
+                            }
+                            SendModeItem("中断后发送", model.sendMode == "interrupt") {
+                                model.updateSendMode("interrupt")
+                                menu = false
+                            }
+                            HorizontalDivider()
+                            Text(
+                                "显示精细度",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                            SendModeItem("精简", model.detailLevel == "compact") {
+                                model.updateDetailLevel("compact")
+                                menu = false
+                            }
+                            SendModeItem("标准", model.detailLevel == "normal") {
+                                model.updateDetailLevel("normal")
+                                menu = false
+                            }
+                            SendModeItem("详细", model.detailLevel == "verbose") {
+                                model.updateDetailLevel("verbose")
+                                menu = false
+                            }
                         }
                     }
                 },
@@ -189,11 +257,15 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 value = input,
                 onChange = { input = it },
                 onShowQueue = { showQueue = true },
+                attachments = attachments,
+                onPickImage = { imagePicker.launch("image/*") },
+                onRemoveAttachment = { attachments.removeAt(it) },
                 onSend = {
                     val text = input.trim()
-                    if (text.isNotEmpty()) {
+                    if (text.isNotEmpty() || attachments.isNotEmpty()) {
                         input = ""
-                        model.sendPrompt(text)
+                        model.sendPrompt(text, attachments.toList())
+                        attachments.clear()
                     }
                 },
             )
@@ -244,18 +316,34 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                     CircularProgressIndicator(strokeWidth = 2.dp)
                 }
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(model.messages, key = { it.id }) { msg ->
-                        MessageItem(msg)
+                Box(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        reverseLayout = true,
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            if (model.detailLevel == "compact") 8.dp else 12.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(
+                            if (model.detailLevel == "compact") 4.dp else 10.dp,
+                        ),
+                    ) {
+                        if (model.liveReasoning.isNotBlank() || model.liveText.isNotBlank() || model.sending) {
+                            item(key = "live") {
+                                LiveBubble(model, model.detailLevel)
+                            }
+                        }
+                        items(model.messages.asReversed(), key = { it.id }) { msg ->
+                            MessageItem(msg, model.detailLevel)
+                        }
                     }
-                    if (model.liveReasoning.isNotBlank() || model.liveText.isNotBlank() || model.sending) {
-                        item(key = "live") {
-                            LiveBubble(model)
+                    if (listState.firstVisibleItemIndex > 2) {
+                        SmallScrollToBottom(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 14.dp, bottom = 12.dp),
+                        ) {
+                            scope.launch { listState.animateScrollToItem(0) }
                         }
                     }
                 }
@@ -344,13 +432,15 @@ private fun ChatComposer(
     value: String,
     onChange: (String) -> Unit,
     onShowQueue: () -> Unit,
+    attachments: List<Attachment>,
+    onPickImage: () -> Unit,
+    onRemoveAttachment: (Int) -> Unit,
     onSend: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .imePadding(),
         ) {
             if (model.queue.isNotEmpty()) {
@@ -368,17 +458,77 @@ private fun ChatComposer(
                     )
                 }
             }
+            if (attachments.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    attachments.forEachIndexed { index, att ->
+                        Box {
+                            val bmp = remember(att.base64) {
+                                decodeDataUri("data:${att.mime};base64,${att.base64}", 240)
+                            }
+                            if (bmp != null) {
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(58.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                )
+                            }
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(18.dp)
+                                    .background(MaterialTheme.colorScheme.error, CircleShape)
+                                    .clickableNoRipple { onRemoveAttachment(index) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "移除",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
+                IconButton(
+                    onClick = onPickImage,
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.AddPhotoAlternate,
+                        contentDescription = "添加图片",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
                 OutlinedTextField(
                     value = value,
                     onValueChange = onChange,
                     placeholder = {
-                        Text(if (busy) "运行中 · 发送会加入队列" else "发消息给 opencode…")
+                        Text(
+                            when {
+                                !busy -> "发消息给 opencode…"
+                                model.sendMode == "steer" -> "运行中 · 发送会插入当前回答"
+                                model.sendMode == "interrupt" -> "运行中 · 发送会中断当前回答"
+                                else -> "运行中 · 发送会加入队列"
+                            },
+                        )
                     },
                     modifier = Modifier.weight(1f),
                     maxLines = 5,
@@ -421,7 +571,7 @@ private fun ChatComposer(
 }
 
 @Composable
-private fun MessageItem(msg: Msg) {
+private fun MessageItem(msg: Msg, detail: String) {
     if (msg.isUser) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(
@@ -429,12 +579,14 @@ private fun MessageItem(msg: Msg) {
                 shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
                 modifier = Modifier.widthIn(max = 330.dp),
             ) {
-                Text(
-                    msg.text,
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                Column(Modifier.padding(horizontal = if (detail == "compact") 10.dp else 13.dp, vertical = if (detail == "compact") 6.dp else 9.dp)) {
+                    msg.images.forEach { DataUriImage(it) }
+                    Text(
+                        msg.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
             }
         }
         return
@@ -443,8 +595,8 @@ private fun MessageItem(msg: Msg) {
     Column(Modifier.fillMaxWidth()) {
         msg.parts.forEach { part ->
             when (part) {
-                is Part.Reasoning -> ReasoningBlock(part.text)
-                is Part.Tool -> ToolBlock(part)
+                is Part.Reasoning -> ReasoningBlock(part.text, detail)
+                is Part.Tool -> ToolBlock(part, detail)
                 is Part.Text -> AssistantText(part.text)
             }
         }
@@ -452,7 +604,7 @@ private fun MessageItem(msg: Msg) {
         msg.error?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
-        Footer(msg)
+        if (detail != "compact") Footer(msg)
     }
 }
 
@@ -463,9 +615,9 @@ private fun AssistantText(text: String) {
 }
 
 @Composable
-private fun ReasoningBlock(text: String) {
-    var expanded by remember { mutableStateOf(false) }
-    if (text.isBlank()) return
+private fun ReasoningBlock(text: String, detail: String) {
+    if (text.isBlank() || detail == "compact") return
+    var expanded by remember(detail) { mutableStateOf(detail == "verbose") }
     Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier.clickableNoRipple { expanded = !expanded },
@@ -508,14 +660,73 @@ private fun ReasoningBlock(text: String) {
 }
 
 @Composable
-private fun ToolBlock(part: Part.Tool) {
-    var expanded by remember { mutableStateOf(false) }
+private fun ToolBlock(part: Part.Tool, detail: String) {
+    val hasDiff = part.diff.isNotBlank()
+    val hasOutput = part.output.isNotBlank()
+    val hasImages = part.images.isNotEmpty()
+    val hasError = part.error.isNotBlank()
+    val hasExtra = hasDiff || hasOutput || hasImages || hasError
+    var expanded by remember(detail) { mutableStateOf(detail == "verbose") }
     val statusColor = when (part.status) {
         "completed", "success" -> Accent
         "error", "failed" -> MaterialTheme.colorScheme.error
         "running" -> Sky
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val canExpand = detail != "compact" && hasExtra
+
+    if (detail == "compact") {
+        val summary = part.input.lineSequence().firstOrNull()?.take(120).orEmpty()
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                toolIcon(part.name),
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = statusColor,
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                part.name,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (summary.isNotBlank()) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            val extra = when {
+                hasImages -> "图片"
+                hasDiff -> "diff"
+                hasOutput -> "输出"
+                else -> ""
+            }
+            if (extra.isNotEmpty()) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    extra,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor.copy(alpha = 0.9f),
+                )
+            }
+        }
+        return
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         shape = RoundedCornerShape(10.dp),
@@ -523,14 +734,14 @@ private fun ToolBlock(part: Part.Tool) {
     ) {
         Column(
             Modifier
-                .clickableNoRipple { expanded = !expanded }
+                .then(if (canExpand) Modifier.clickableNoRipple { expanded = !expanded } else Modifier)
                 .padding(horizontal = 10.dp, vertical = 7.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Rounded.Build,
+                    toolIcon(part.name),
                     contentDescription = null,
-                    modifier = Modifier.size(14.dp),
+                    modifier = Modifier.size(15.dp),
                     tint = statusColor,
                 )
                 Spacer(Modifier.width(6.dp))
@@ -541,12 +752,25 @@ private fun ToolBlock(part: Part.Tool) {
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    part.status,
+                    when {
+                        part.exitCode != null && part.exitCode != 0L -> "exit ${part.exitCode}"
+                        part.status == "completed" -> "完成"
+                        part.status == "running" -> "运行中"
+                        part.status == "error" -> "失败"
+                        else -> part.status
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = statusColor,
                 )
                 Spacer(Modifier.weight(1f))
-                if (part.input.isNotBlank() || part.output.isNotBlank() || part.error.isNotBlank()) {
+                if (part.truncated) {
+                    Text(
+                        "已截断",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (canExpand) {
                     Icon(
                         if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                         contentDescription = null,
@@ -555,9 +779,9 @@ private fun ToolBlock(part: Part.Tool) {
                     )
                 }
             }
-            if (part.input.isNotBlank()) {
+            if (part.input.isNotBlank() && detail != "compact") {
                 Text(
-                    part.input.lineSequence().firstOrNull()?.take(160) ?: "",
+                    part.input.lineSequence().firstOrNull()?.take(180) ?: "",
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -566,7 +790,13 @@ private fun ToolBlock(part: Part.Tool) {
                     modifier = Modifier.padding(top = 3.dp),
                 )
             }
-            if (part.output.isNotBlank()) {
+            if (hasImages) {
+                part.images.forEach { DataUriImage(it) }
+            }
+            if (hasDiff && (expanded || detail == "normal")) {
+                DiffView(if (expanded) part.diff else part.diff.lineSequence().take(10).joinToString("\n"))
+            }
+            if (hasOutput) {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     if (expanded) part.output.takeLast(8000) else part.output.take(600),
@@ -578,7 +808,7 @@ private fun ToolBlock(part: Part.Tool) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (expanded && part.error.isNotBlank()) {
+            if (hasError && (expanded || detail == "normal")) {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     part.error,
@@ -593,11 +823,23 @@ private fun ToolBlock(part: Part.Tool) {
 @Composable
 private fun Footer(msg: Msg) {
     val tokens = msg.tokens ?: return
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)) {
+    val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
+    val color = rateColor(tokens.hitRate, dark)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .background(color, RoundedCornerShape(4.dp)),
+        )
         Text(
             "命中 ${rateLabel(tokens.hitRate)}",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = color,
+            fontWeight = FontWeight.SemiBold,
         )
         Text(
             "in ${formatTokens(tokens.input)} · cache ${formatTokens(tokens.cacheRead)} · out ${formatTokens(tokens.outputAll)}",
@@ -615,10 +857,10 @@ private fun Footer(msg: Msg) {
 }
 
 @Composable
-private fun LiveBubble(model: AppModel) {
+private fun LiveBubble(model: AppModel, detail: String) {
     Column(Modifier.fillMaxWidth()) {
         if (model.liveReasoning.isNotBlank()) {
-            ReasoningBlock(model.liveReasoning)
+            ReasoningBlock(model.liveReasoning, detail)
         }
         if (model.liveText.isNotBlank()) {
             AssistantText(model.liveText)
@@ -636,15 +878,69 @@ private fun LiveBubble(model: AppModel) {
     }
 }
 
+@Composable
+private fun SmallScrollToBottom(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FloatingActionButton(
+        onClick = onClick,
+        modifier = modifier.size(40.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.primary,
+        shape = CircleShape,
+    ) {
+        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "回到底部", modifier = Modifier.size(22.dp))
+    }
+}
+
+/** 选一张图 -> 最长边压到 1600px -> JPEG 85 -> inline base64（opencode 的 files[].data）。 */
+private fun loadImageAttachment(context: Context, uri: Uri): Attachment? = runCatching {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        ?: return@runCatching null
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+    var sample = 1
+    while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2
+    val bitmap = BitmapFactory.decodeByteArray(
+        bytes, 0, bytes.size,
+        BitmapFactory.Options().apply { inSampleSize = sample },
+    ) ?: return@runCatching null
+    val out = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+    Attachment(
+        name = "image_${System.currentTimeMillis()}.jpg",
+        mime = "image/jpeg",
+        base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP),
+    )
+}.getOrNull()
+
 data class PickerRow(val title: String, val subtitle: String, val onClick: () -> Unit)
+
+@Composable
+private fun SendModeItem(label: String, selected: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        trailingIcon = {
+            if (selected) {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = "当前",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        },
+        onClick = onClick,
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PickerSheet(title: String, rows: List<PickerRow>, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.8f).padding(horizontal = 16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
-            LazyColumn(Modifier.fillMaxWidth().height(420.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 items(rows.size) { index ->
                     val row = rows[index]
                     Row(

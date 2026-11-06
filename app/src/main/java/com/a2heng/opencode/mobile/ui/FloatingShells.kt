@@ -49,8 +49,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
-    val running = model.shells.filter { it.status.isEmpty() || it.status == "running" }
-    if (running.isEmpty()) return
+    if (model.shells.isEmpty()) return
 
     var expanded by remember { mutableStateOf(false) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -81,9 +80,9 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(22.dp),
                     )
-                    if (running.size > 1) {
+                    if (model.shells.size > 1) {
                         Text(
-                            running.size.toString(),
+                            model.shells.size.toString(),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
@@ -119,18 +118,29 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                             tint = MaterialTheme.colorScheme.primary,
                         )
                         Text(
-                            "后台 shell · ${running.size}",
+                            "后台 shell · ${model.shells.size}",
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier
                                 .padding(start = 6.dp)
                                 .weight(1f),
+                        )
+                        Text(
+                            "清空",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .clickableNoRipple {
+                                    model.clearShells()
+                                    expanded = false
+                                }
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                         IconButton(onClick = { expanded = false }, modifier = Modifier.size(28.dp)) {
                             Icon(Icons.Rounded.Close, contentDescription = "收起", modifier = Modifier.size(15.dp))
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    running.take(4).forEach { shell ->
+                    model.shells.take(6).forEach { shell ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -151,9 +161,17 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                if (selected == shell.id) "查看中" else "输出",
+                                when {
+                                    selected == shell.id -> "查看中"
+                                    shell.status == "exited" -> "已结束"
+                                    else -> "运行中"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = if (shell.status == "exited") {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
                             )
                         }
                     }

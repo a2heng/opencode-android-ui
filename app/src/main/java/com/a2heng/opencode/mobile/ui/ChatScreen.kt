@@ -464,7 +464,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             scope.launch { listState.animateScrollToItem(0) }
                         }
                     }
-                    if (model.shells.any { it.status.isEmpty() || it.status == "running" }) {
+                    if (model.shells.isNotEmpty()) {
                         FloatingShells(
                             model = model,
                             modifier = Modifier

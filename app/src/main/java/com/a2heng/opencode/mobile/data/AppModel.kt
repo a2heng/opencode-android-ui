@@ -307,6 +307,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     "queue" -> {
                         withContext(Dispatchers.IO) { c.prompt(s.id, bodyText, "queue", attachments) }
                         statusLine = "已加入队列"
+                        delay(300)
                         loadInbox()
                     }
                     "steer" -> {
@@ -360,6 +361,44 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 queue = queue.filterNot { it.id == id }
             } catch (e: Exception) {
                 lastError = e.message
+            }
+        }
+    }
+
+    /** 撤回排队消息：取消服务端队列项，成功后再把原文还给输入框。 */
+    fun withdrawQueued(id: String, onDone: (String) -> Unit) {
+        val c = client ?: return
+        val s = current ?: return
+        val item = queue.firstOrNull { it.id == id } ?: return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { c.cancelInbox(s.id, id) }
+                queue = queue.filterNot { it.id == id }
+                onDone(item.text)
+            } catch (e: Exception) {
+                lastError = e.message
+            }
+        }
+    }
+
+    /**
+     * opencode 的 revert：长按已发出的用户消息时使用。
+     * files=true 连文件改动一起还原；false 只回退对话。
+     */
+    fun revertTo(messageID: String, files: Boolean) {
+        val c = client ?: return
+        val s = current ?: return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    c.stageRevert(s.id, messageID, files)
+                    c.commitRevert(s.id)
+                }
+                queue = emptyList()
+                loadMessages(silent = true)
+                refreshSessions()
+            } catch (e: Exception) {
+                lastError = "回退失败：" + (e.message ?: "")
             }
         }
     }
@@ -512,6 +551,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
+        if (type.startsWith("session.inbox.")) {
+            loadInbox()
+            return
+        }
+
         if (type.startsWith("form.")) {
             sessionID?.let { loadForms(it) }
             if (current != null) loadForms(current!!.id)
@@ -524,11 +568,6 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
 
         val sid = sessionID ?: return
-
-        if (type.startsWith("session.inbox.")) {
-            if (current?.id == sid) loadInbox()
-            return
-        }
 
         if (current?.id != sid) return
 

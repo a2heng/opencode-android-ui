@@ -185,6 +185,24 @@ class OcClient(rawBase: String, private val password: String) {
         post("/api/session/$sessionID/interrupt")
     }
 
+    suspend fun stageRevert(sessionID: String, messageID: String, files: Boolean) {
+        post(
+            "/api/session/$sessionID/revert/stage",
+            buildJsonObject {
+                put("messageID", JsonPrimitive(messageID))
+                put("files", JsonPrimitive(files))
+            },
+        )
+    }
+
+    suspend fun commitRevert(sessionID: String) {
+        post("/api/session/$sessionID/revert/commit")
+    }
+
+    suspend fun clearRevert(sessionID: String) {
+        delete("/api/session/$sessionID/revert")
+    }
+
     suspend fun createSession(directory: String? = null): SessionInfo? {
         val body = buildJsonObject {
             if (!directory.isNullOrBlank()) {

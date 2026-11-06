@@ -91,37 +91,55 @@ fun DataUriImage(uri: String) {
     )
 }
 
-/** 统一 diff：+ 绿、- 红、@@ 蓝，逐行等宽显示。 */
+/** 统一 diff：+ 绿、- 红、@@ 蓝；跳过 Index/---/+++ 这些噪声头。 */
 @Composable
 fun DiffView(diff: String) {
     val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
     val plus = if (dark) Color(0xFF4ADE80) else Color(0xFF17864A)
     val minus = if (dark) Color(0xFFF87171) else Color(0xFFC0323D)
     val hunk = if (dark) Color(0xFF7DD3FC) else Color(0xFF1D7FA6)
+    val lines = remember(diff) { meaningfulDiffLines(diff) }
     Column(
         Modifier
             .fillMaxWidth()
             .padding(top = 6.dp)
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .horizontalScroll(rememberScrollState())
-            .padding(8.dp),
+            .padding(vertical = 4.dp),
     ) {
-        diff.lineSequence().take(300).forEach { line ->
+        lines.take(400).forEach { line ->
             val color = when {
                 line.startsWith("@@") -> hunk
-                line.startsWith("+") && !line.startsWith("+++") -> plus
-                line.startsWith("-") && !line.startsWith("---") -> minus
-                line.startsWith("Index:") || line.startsWith("---") || line.startsWith("+++") ->
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                line.startsWith("+") -> plus
+                line.startsWith("-") -> minus
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            val bg = when {
+                line.startsWith("+") -> plus.copy(alpha = 0.10f)
+                line.startsWith("-") -> minus.copy(alpha = 0.10f)
+                line.startsWith("@@") -> hunk.copy(alpha = 0.10f)
+                else -> Color.Transparent
             }
             Text(
                 line.ifEmpty { " " },
                 fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
                 color = color,
-                maxLines = 1,
+                softWrap = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(bg)
+                    .padding(horizontal = 8.dp, vertical = 1.dp),
             )
         }
     }
 }
+
+fun meaningfulDiffLines(diff: String): List<String> =
+    diff.lineSequence().filterNot { line ->
+        line.startsWith("Index: ") || line.startsWith("===") ||
+            line.startsWith("--- ") || line.startsWith("+++ ")
+    }.toList()
+
+/** 折叠状态只显示真正的改动行，避免前 10 行全是 patch 头。 */
+fun diffPreview(diff: String, maxLines: Int): String =
+    meaningfulDiffLines(diff).take(maxLines).joinToString("\n")

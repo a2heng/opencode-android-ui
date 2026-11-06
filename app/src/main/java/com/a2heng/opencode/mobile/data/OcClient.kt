@@ -169,12 +169,22 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun inbox(sessionID: String): List<JsonObject> =
         unwrapArray(get("/api/session/$sessionID/inbox")).mapNotNull { it as? JsonObject }
 
-    suspend fun commands(): List<CommandInfo> =
-        unwrapArray(get("/api/command")).mapNotNull { item ->
+    suspend fun commands(directory: String? = null): List<CommandInfo> {
+        val query = if (directory.isNullOrBlank()) {
+            ""
+        } else {
+            "?location[directory]=" + urlEncode(directory)
+        }
+        return unwrapArray(get("/api/command$query")).mapNotNull { item ->
             val o = item as? JsonObject ?: return@mapNotNull null
             val name = o.str("name") ?: return@mapNotNull null
             CommandInfo(name, o.str("description") ?: "")
         }
+    }
+
+    suspend fun compact(sessionID: String) {
+        post("/api/session/$sessionID/compact")
+    }
 
     suspend fun runCommand(
         sessionID: String,

@@ -189,7 +189,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         }
     }
 
-    LaunchedEffect(session.id) { model.loadMeta() }
+    LaunchedEffect(session.id) { model.loadMeta(session.directory) }
 
     // 发出 pending / 新消息后回到最底部（reverseLayout 的 0 就是底部）
     LaunchedEffect(model.queue.size) {
@@ -343,7 +343,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 attachments = attachments,
                 onPickImage = { imagePicker.launch("image/*") },
                 onPickFile = { showFilePicker = true },
-                onPickCommand = { showCommands = true },
+                onPickCommand = { showCommands = true; model.loadMeta(session.directory) },
                 onRemoveAttachment = { attachments.removeAt(it) },
                 onSend = {
                     val text = input.trim()
@@ -353,11 +353,15 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             text == "/" + it.name || text.startsWith("/" + it.name + " ")
                         }
                         if (cmd != null) {
-                            model.runCommand(
-                                cmd.name,
-                                text.removePrefix("/" + cmd.name).trim(),
-                                attachments.toList(),
-                            )
+                            when (cmd.name) {
+                                "compact" -> model.compactSession()
+                                "interrupt" -> model.interrupt()
+                                else -> model.runCommand(
+                                    cmd.name,
+                                    text.removePrefix("/" + cmd.name).trim(),
+                                    attachments.toList(),
+                                )
+                            }
                         } else {
                             model.sendPrompt(text, attachments.toList())
                         }
@@ -553,34 +557,37 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         ModalBottomSheet(onDismissRequest = { showCommands = false }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Text("命令", style = MaterialTheme.typography.titleMedium)
-                if (model.commands.isEmpty()) {
+                val commandList = model.commands + listOf(
+                    CommandInfo("compact", "压缩当前会话的上下文"),
+                    CommandInfo("interrupt", "中断当前回答"),
+                ).filter { extra -> model.commands.none { it.name == extra.name } }
+                if (commandList.isEmpty()) {
                     Text(
-                        "当前目录没有可用命令",
+                        "没有可用命令",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 16.dp),
                     )
-                } else {
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
-                        items(model.commands, key = { it.name }) { cmd ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickableNoRipple {
-                                        showCommands = false
-                                        input = "/" + cmd.name + " " + input.trim()
-                                    }
-                                    .padding(vertical = 10.dp),
-                            ) {
-                                Column {
-                                    Text("/${cmd.name}", style = MaterialTheme.typography.bodyLarge)
-                                    if (cmd.description.isNotBlank()) {
-                                        Text(
-                                            cmd.description,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                    items(commandList, key = { it.name }) { cmd ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickableNoRipple {
+                                    showCommands = false
+                                    input = "/" + cmd.name + " " + input.trim()
+                                }
+                                .padding(vertical = 10.dp),
+                        ) {
+                            Column {
+                                Text("/${cmd.name}", style = MaterialTheme.typography.bodyLarge)
+                                if (cmd.description.isNotBlank()) {
+                                    Text(
+                                        cmd.description,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }

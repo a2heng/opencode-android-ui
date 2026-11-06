@@ -862,13 +862,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     // 模型 / Agent
     // =========================================================================
 
-    fun loadMeta() {
+    fun loadMeta(directory: String? = null) {
         val c = client ?: return
         viewModelScope.launch {
             try {
-                val (a, m, cmds) = withContext(Dispatchers.IO) {
-                    Triple(c.agents(), c.models(), c.commands())
-                }
+                val (a, m) = withContext(Dispatchers.IO) { c.agents() to c.models() }
                 agents = a.filter { it.str("mode") != "subagent" }
                 contextLimits = m.mapNotNull { item ->
                     val id = item.str("id") ?: return@mapNotNull null
@@ -880,8 +878,28 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     val status = it.str("status")
                     (enabled != false) && (status == null || status == "active")
                 }
+                val cmds = withContext(Dispatchers.IO) {
+                    val local = if (directory.isNullOrBlank()) emptyList() else {
+                        runCatching { c.commands(directory) }.getOrDefault(emptyList())
+                    }
+                    val global = runCatching { c.commands() }.getOrDefault(emptyList())
+                    (local + global).distinctBy { it.name }
+                }
                 commands = cmds
             } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun compactSession() {
+        val c = client ?: return
+        val s = current ?: return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { c.compact(s.id) }
+                loadMessages(silent = true)
+            } catch (e: Exception) {
+                lastError = e.message
             }
         }
     }

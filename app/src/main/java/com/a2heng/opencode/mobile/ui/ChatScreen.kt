@@ -568,7 +568,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                     .fillMaxWidth()
                                     .clickableNoRipple {
                                         showCommands = false
-                                        input = "/" + cmd.name + " "
+                                        input = "/" + cmd.name + " " + input.trim()
                                     }
                                     .padding(vertical = 10.dp),
                             ) {

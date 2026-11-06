@@ -1236,19 +1236,19 @@ private fun PendingBubble(text: String, onWithdraw: () -> Unit) {
             modifier = Modifier.widthIn(max = 300.dp),
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
-                Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                        "pending",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                     )
                     AnimatedEllipsis()
                 }
-                Text(
-                    "pending",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                )
             }
         }
     }
@@ -1261,19 +1261,19 @@ private fun AnimatedEllipsis() {
         initialValue = 0f,
         targetValue = 3f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = androidx.compose.animation.core.LinearEasing),
+            animation = tween(durationMillis = 1500, easing = androidx.compose.animation.core.LinearEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
         ),
         label = "pending-dots",
     )
-    val count = (phase.toInt() % 3) + 1
+    val step = phase.toInt().coerceIn(0, 3)
     Row(verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
             Text(
                 ".",
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                    alpha = if (index < count) 0.75f else 0.06f,
+                    alpha = if (index <= step) 0.9f else 0.08f,
                 ),
             )
         }

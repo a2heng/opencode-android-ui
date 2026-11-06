@@ -67,6 +67,25 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var pendingAttachment by mutableStateOf<Attachment?>(null)
         private set
+    var shells by mutableStateOf<List<ShellInfo>>(emptyList())
+        private set
+
+    fun refreshShells() {
+        val c = client ?: return
+        viewModelScope.launch {
+            try {
+                shells = withContext(Dispatchers.IO) { c.shells() }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    suspend fun loadShellOutput(id: String): String {
+        val c = client ?: return ""
+        return withContext(Dispatchers.IO) {
+            runCatching { c.shellOutput(id) }.getOrDefault("")
+        }
+    }
 
     val appVersion: String = com.a2heng.opencode.mobile.BuildConfig.VERSION_NAME
     var checkingUpdate by mutableStateOf(false)

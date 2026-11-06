@@ -191,6 +191,13 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
 
     LaunchedEffect(session.id) { model.loadMeta(session.directory) }
 
+    LaunchedEffect(session.id) {
+        while (true) {
+            model.refreshShells()
+            kotlinx.coroutines.delay(3000)
+        }
+    }
+
     // 发出 pending / 新消息后回到最底部（reverseLayout 的 0 就是底部）
     LaunchedEffect(model.queue.size) {
         if (model.queue.isNotEmpty()) listState.animateScrollToItem(0)
@@ -440,14 +447,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             }
                         }
                         items(model.messages.asReversed(), key = { it.id }) { msg ->
-                            Box(Modifier.animateItem()) {
-                                MessageItem(
-                                    msg = msg,
-                                    detail = model.detailLevel,
-                                    onLongPressUser = { revertTarget = it },
-                                    onOpenTool = { detailTool = it },
-                                )
-                            }
+                            MessageItem(
+                                msg = msg,
+                                detail = model.detailLevel,
+                                onLongPressUser = { revertTarget = it },
+                                onOpenTool = { detailTool = it },
+                            )
                         }
                     }
                     if (listState.firstVisibleItemIndex > 2) {
@@ -458,6 +463,14 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         ) {
                             scope.launch { listState.animateScrollToItem(0) }
                         }
+                    }
+                    if (model.shells.any { it.status.isEmpty() || it.status == "running" }) {
+                        FloatingShells(
+                            model = model,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 12.dp, bottom = 70.dp),
+                        )
                     }
                 }
             }

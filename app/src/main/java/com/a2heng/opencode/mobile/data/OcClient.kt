@@ -186,6 +186,25 @@ class OcClient(rawBase: String, private val password: String) {
         post("/api/session/$sessionID/compact")
     }
 
+    suspend fun shells(): List<ShellInfo> =
+        unwrapArray(get("/api/shell")).mapNotNull { item ->
+            val o = item as? JsonObject ?: return@mapNotNull null
+            ShellInfo(
+                id = o.str("id") ?: return@mapNotNull null,
+                command = o.str("command") ?: "",
+                status = o.str("status") ?: "",
+            )
+        }
+
+    suspend fun shellOutput(id: String): String {
+        val e = get("/api/shell/$id/output")
+        return when (e) {
+            is JsonPrimitive -> e.content
+            is JsonObject -> e.str("output") ?: e.str("data") ?: e.toString()
+            else -> e.toString()
+        }
+    }
+
     suspend fun runCommand(
         sessionID: String,
         name: String,

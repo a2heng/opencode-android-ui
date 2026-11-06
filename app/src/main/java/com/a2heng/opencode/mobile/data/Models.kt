@@ -371,6 +371,8 @@ data class CommandInfo(val name: String, val description: String)
 
 data class UpdateInfo(val tag: String, val pageUrl: String, val apkUrl: String?)
 
+data class ShellInfo(val id: String, val command: String, val status: String)
+
 /** 通过 prompt 的 files 字段发送的图片（inline base64）。 */
 data class Attachment(val name: String, val mime: String, val base64: String)
 

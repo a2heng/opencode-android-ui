@@ -214,7 +214,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     val effectiveModel = session.model ?: model.messages.lastOrNull { it.model != null }?.model
     val lastTokens = model.messages.lastOrNull { it.isAssistant && it.tokens != null }?.tokens
     val contextLimit = effectiveModel?.let { model.contextLimits[it.id] } ?: 0L
-    val contextUsed = (lastTokens?.input ?: 0L) + (lastTokens?.cacheRead ?: 0L)
+    val contextUsed = (lastTokens?.input ?: 0L) + (lastTokens?.cacheRead ?: 0L) + (lastTokens?.cacheWrite ?: 0L)
     val contextPct = if (contextLimit > 0 && contextUsed > 0) {
         (contextUsed * 100.0 / contextLimit).coerceIn(0.0, 100.0)
     } else {

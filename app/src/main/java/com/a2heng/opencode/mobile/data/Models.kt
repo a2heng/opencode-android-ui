@@ -384,6 +384,8 @@ data class ShellInfo(
     val command: String,
     val status: String,
     val sessionID: String = "",
+    // 服务端 time.started（毫秒时间戳），用来在悬浮球里显示已经跑了多久
+    val started: Long = 0L,
 )
 
 /** 通过 prompt 的 files 字段发送的图片（inline base64）。 */

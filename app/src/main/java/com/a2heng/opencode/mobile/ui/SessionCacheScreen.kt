@@ -133,13 +133,6 @@ fun SessionCacheScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { model.loadCacheDetail(session) }, enabled = !model.cacheDetailLoading) {
-                        if (model.cacheDetailLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
-                        }
-                    }
                     IconButton(onClick = { onOpenChat(session) }) {
                         Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = "打开会话")
                     }
@@ -166,7 +159,7 @@ fun SessionCacheScreen(
                     color = MaterialTheme.colorScheme.error,
                 )
                 Spacer(Modifier.height(12.dp))
-                Text("下拉刷新或点右上角重新拉取", style = MaterialTheme.typography.labelSmall)
+                Text("重新打开这个页面会自动刷新", style = MaterialTheme.typography.labelSmall)
             }
 
             else -> CacheDetailBody(detail, dark, padding, model.modelGroupById)

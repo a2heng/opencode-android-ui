@@ -66,7 +66,8 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 ### 4.5 输入区与按钮
 
 - 左右按钮不要太大（当前 40dp 圆形「+」、42dp 发送/停止），否则输入框太窄、不够紧凑；左右边距 6dp。
-- 输入框**多行**（`singleLine = false`，`maxLines = 5`）：换行时能显示多行、光标可在行间移动，不要只显示第一行。
+- 输入框**多行**（`maxLines = 5`）：换行时能显示多行、光标可在行间移动，不要只显示第一行。用自绘的 `Surface + BasicTextField`（内边距 10/4/6dp），不要用 `OutlinedTextField` 的默认大内边距。
+- 清空输入的 ✕ 放在**输入框右上角**（24dp 点击区），点了先弹确认「清空输入？」再清空（只清文字，不动附件），不要直接清。
 - 右下角按钮始终显示：有文字/图片 → 发送（主题色箭头）；运行中空输入 → 停止（红色方块，确认后中断）；空闲空输入 → 灰色不可用箭头（不要隐藏，也不要换成叉）。
 - 客户端命令**必须带斜杠**（`/compact`、`/interrupt`、`/model`、`/agent`、`/reload`）；裸写的 `compact` 等一律当普通文本发送，避免误触发。compact 时 Toast 提示「正在压缩上下文…」，compaction 事件驱动 LiveBubble 的压缩状态。
 - 排队 / steer 发送后**不要改 statusLine**，保留服务端真实状态；用户知道自己已经插进队列，多余的提示只会带来 bug。
@@ -87,7 +88,8 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 流式思考框：卡片里面带头部（图标 +「思考」+ 进行中/完成 + 字数），内容最多 16 行 + 右下角「展开」弹窗；不要固定高度/内嵌滚动，也不要把标题放在卡片外面。
 - 工具多行输出（shell / diff / write / read）：统一 `TOOL_PREVIEW_LINES = 20` 行阈值，超出在右下角嵌一个「展开」按钮（按钮右下圆角=卡片圆角、左上切角，不要用渐变阴影），点开工具详情弹窗；正文里不要塞滚动条，滚动效果交给系统原生 overscroll。
 - 工具卡片信息去重：`read` 路径只显示一次（副标题 + 行号范围），正文去掉 `Read file …` 头；`edit` 显示路径 + `+N −M`；`write` 显示路径 + 行数。
-- 工具/思考卡片整张都可以点开详情弹窗（「展开」按钮只是额外提示）；弹窗直接 80ms 淡入、70ms 淡出，不要 scale、不要从右下角弹出，干脆利落；弹窗内边距要小（10dp 左右）。
+- 工具/思考卡片整张都可以点开详情弹窗（「展开」按钮只是额外提示）；**不要用系统 `Dialog` 窗口**（厂商 ROM 会套一层「从角落飘出来」的窗口动画，Compose 关不掉），一律用 `DetailOverlay`（画在当前组合里的全屏遮罩）：原地 90ms 淡入 / 80ms 淡出，没有 scale、没有位移；点遮罩或返回键关闭，打开时顺带收起键盘。弹窗内边距要小（10dp 左右）。
+- 详情卡内容每次重组都从**最新消息 / `model.liveReasoning`** 取，不是点开那一刻的快照：运行中的工具输出、还在增长的思考内容都要在弹窗里继续更新（流式思考自动滚到底，用户往上翻过就别抢）。
 - 显示模式三档：**精简（compact）** / **适中（full）** / **完整（expanded）**。
   - 精简：工具一行、思考一行，点开看详情。
   - 适中：工具/思考预览 `TOOL_PREVIEW_LINES = 20` 行（思考 16 行），超出右下角「展开」。
@@ -128,6 +130,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 悬浮球只显示**当前会话自己的**后台 shell（`Shell.Info.metadata.sessionID == current.id`）。
 - `/api/shell`、`/api/shell/{id}/output`、`DELETE /api/shell/{id}` 都是 **location 作用域**，必须带 `location[directory]=<当前会话目录>`；不带会去查根目录，导致悬浮球看不到当前会话的 shell。
 - 别的会话在跑 shell 时，当前对话不显示悬浮球。
+- 悬浮球展开的卡片：每一行**最左边**是已运行时长（`time.started`，每秒刷新，`12s` / `3m05s` / `1h02m`），点这一行就把输出**展开在这一行下面**（不是整张卡片最下面），输出每 1.5s 刷新；**同一时间只允许展开一条**，点另一条时前一条自动收起。
 - 原版 Ctrl+B：`POST /api/session/{id}/background` 把正在阻塞的 shell 移到后台。
   - 精简模式：在运行中的 shell 那一行右侧显示「后台」。
   - 适中/完整模式：在工具卡片标题右侧显示「后台」。
@@ -152,6 +155,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 切换会话：用内存缓存（已加载消息 + cursor），切回来先显示缓存再静默刷新最新页；缓存最多 8 个会话。
 - 完整历史（缓存统计等）才用 `allMessages()` 循环 cursor 拉全量。
 - 消息接口**新的在前**，按 `time.created` 升序再渲染。
+- 从后台 / 锁屏回到前台：SSE 可能断了一阵，界面上的「正在思考 / 第 N 步」是旧事件攒的。`AppModel.refreshOnResume()`（挂在 `ON_RESUME`）强制拉一次 `/api/session/active` + 最新一页消息 + inbox + shells；会话已经不在 active 里就清掉 `sending / liveText / liveReasoning / statusLine`。
 
 ## 6. opencode v2 API 关键坑（详见 `docs/API-NOTES.md`）
 

@@ -81,7 +81,6 @@ private fun PtyList(model: AppModel) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            TextButton(onClick = { model.loadPtys() }) { Text("刷新") }
             TextButton(onClick = { model.createPty() }) {
                 Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))

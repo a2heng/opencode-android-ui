@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -38,7 +40,7 @@ import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.FsEntry
 
 @Composable
-fun FilesScreen(model: AppModel) {
+fun FilesScreen(model: AppModel, wide: Boolean = false) {
     LaunchedEffect(Unit) {
         if (model.fsDir.isBlank()) model.loadDir(null)
     }
@@ -54,12 +56,43 @@ fun FilesScreen(model: AppModel) {
         }
     }
 
+    if (wide) {
+        // 横屏：左边目录/文件列表，右边预览，选文件不再把列表顶掉
+        Row(Modifier.fillMaxSize()) {
+            Box(Modifier.width(320.dp).fillMaxHeight()) { FsListPane(model) }
+            androidx.compose.material3.VerticalDivider(
+                Modifier.fillMaxHeight(),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+            )
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                val open = model.openFile
+                if (open != null) {
+                    FileViewer(model, open)
+                } else {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "选一个文件在这里查看",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val open = model.openFile
     if (open != null) {
         FileViewer(model, open)
         return
     }
 
+    FsListPane(model)
+}
+
+@Composable
+private fun FsListPane(model: AppModel) {
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
@@ -86,12 +119,8 @@ fun FilesScreen(model: AppModel) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { model.loadDir(model.fsDir) }, enabled = !model.fsLoading) {
-                if (model.fsLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新", modifier = Modifier.size(20.dp))
-                }
+            if (model.fsLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             }
         }
 
@@ -129,7 +158,7 @@ private fun FsRow(entry: FsEntry, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clickableNoRipple(onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(

@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
                     notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-            LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { model.retryIfNeeded() }
+            LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { model.refreshOnResume() }
             OcTheme(themeMode = model.themeMode, appearance = model.appearance) {
                 LaunchedEffect(shared) {
                     shared?.let {

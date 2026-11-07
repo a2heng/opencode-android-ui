@@ -2,6 +2,15 @@ package com.a2heng.opencode.mobile.ui
 
 import android.os.Build
 import android.view.RoundedCorner
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,6 +48,38 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+/**
+ * 全局唯一的卡片动画。
+ *
+ * 所有卡片（会话/消息条目、工具卡、思考卡、详情面板/遮罩）都从这里取，不要在别处另写一份：
+ * 只有淡入淡出 + 很小的缩放（0.985 → 1），没有任何位移，幅度小、干净利落，
+ * 出现和消失都有。
+ */
+object CardMotion {
+    const val SCALE_FROM = 0.985f
+    val FadeIn: FiniteAnimationSpec<Float> =
+        tween(durationMillis = 110, easing = FastOutSlowInEasing)
+    val FadeOut: FiniteAnimationSpec<Float> =
+        tween(durationMillis = 90, easing = FastOutSlowInEasing)
+    val enter: EnterTransition =
+        fadeIn(FadeIn) + scaleIn(
+            animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+            initialScale = SCALE_FROM,
+        )
+    val exit: ExitTransition =
+        fadeOut(FadeOut) + scaleOut(
+            animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+            targetScale = SCALE_FROM,
+        )
+}
+
+/**
+ * 宽屏判定：宽度 ≥ 600dp（横屏手机 / 平板）时用「左侧 rail + 双栏」布局。
+ * 竖屏手机保持底部导航 + 全屏子页。
+ */
+@Composable
+fun rememberIsWideLayout(): Boolean = LocalConfiguration.current.screenWidthDp >= 600
 
 @Composable
 fun RateDot(rate: Double, modifier: Modifier = Modifier, size: Int = 9) {

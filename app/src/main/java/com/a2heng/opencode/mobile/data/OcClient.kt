@@ -247,6 +247,8 @@ class OcClient(rawBase: String, private val password: String) {
                 status = o.str("status") ?: "",
                 // ShellTool 会把来源会话放在 metadata.sessionID，用它在客户端按会话过滤悬浮球
                 sessionID = o.obj("metadata")?.str("sessionID") ?: "",
+                // 有的版本给 number，有的给 double，统一取 long
+                started = o.obj("time")?.long("started") ?: 0L,
             )
         }
 

@@ -50,6 +50,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
@@ -125,10 +127,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -164,14 +168,15 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(model: AppModel, session: SessionInfo) {
+fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     var input by rememberSaveable { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
     var pickModel by remember { mutableStateOf(false) }
     var pickAgent by remember { mutableStateOf(false) }
     var revertTarget by remember { mutableStateOf<Msg?>(null) }
-    var detailTool by remember { mutableStateOf<Part.Tool?>(null) }
-    var reasoningDetail by remember { mutableStateOf<String?>(null) }
+    var detailToolID by remember { mutableStateOf<String?>(null) }
+    // 思考详情：live 表示点的是底部流式区，内容要继续跟着 model.liveReasoning 更新
+    var reasoningView by remember { mutableStateOf<ReasoningView?>(null) }
     var showCommands by remember { mutableStateOf(false) }
     var showFilePicker by remember { mutableStateOf(false) }
     var openMenu by remember { mutableStateOf(false) }
@@ -297,8 +302,11 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .height(52.dp)
+                        .then(
+                            if (wide) Modifier
+                            else Modifier.windowInsetsPadding(WindowInsets.statusBars),
+                        )
+                        .height(46.dp)
                         .padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -502,22 +510,29 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                     LiveBubble(
                                         model,
                                         model.detailLevel,
-                                        onOpenReasoning = { reasoningDetail = it },
+                                        onOpenReasoning = { reasoningView = ReasoningView(it, live = true) },
                                     )
                                 }
                             }
                             items(model.messages.asReversed(), key = { it.id }) { msg ->
-                                // 不做任何出现/消失/位移动画：卡片直接凭空出现、凭空消失。
-                                // animateItem 的 fade 会在消息合并时留下半透明的“残影”，看起来像卡片滑了一下。
-                                Box(Modifier.clipToBounds()) {
+                                // 卡片出现/消失统一用 CardMotion（淡入淡出，不位移）
+                                Box(
+                                    Modifier
+                                        .animateItem(
+                                            fadeInSpec = CardMotion.FadeIn,
+                                            placementSpec = null,
+                                            fadeOutSpec = CardMotion.FadeOut,
+                                        )
+                                        .clipToBounds(),
+                                ) {
                                     MessageItem(
                                         msg = msg,
                                         detail = model.detailLevel,
                                         baseDir = session.directory,
                                         onBackground = { model.backgroundCurrent() },
-                                        onOpenReasoning = { reasoningDetail = it },
+                                        onOpenReasoning = { reasoningView = ReasoningView(it, live = false) },
                                         onLongPressUser = { revertTarget = it },
-                                        onOpenTool = { detailTool = it },
+                                        onOpenTool = { detailToolID = it.toolID },
                                     )
                                 }
                             }
@@ -783,12 +798,45 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         )
     }
 
-    detailTool?.let { tool ->
-        ToolDetailDialog(tool, session.directory) { detailTool = null }
+    // 详情卡每次重组都从最新消息里取，运行中的工具/思考在弹窗里也能继续更新
+    val detailTool = detailToolID?.let { id ->
+        model.messages.asSequence()
+            .flatMap { it.parts.asSequence() }
+            .filterIsInstance<Part.Tool>()
+            .firstOrNull { it.toolID == id }
     }
+    // 流式思考：把最新内容持续写进状态，否则流式结束后会退回“点开那一刻”的旧内容
+    LaunchedEffect(model.liveReasoning, reasoningView?.live) {
+        val view = reasoningView ?: return@LaunchedEffect
+        if (view.live && model.liveReasoning.isNotBlank()) {
+            reasoningView = view.copy(text = model.liveReasoning)
+        }
+    }
+    val reasoningShown = reasoningView
 
-    reasoningDetail?.let { text ->
-        ReasoningDetailDialog(text) { reasoningDetail = null }
+    if (wide) {
+        // 宽屏：详情做成右侧面板（聊天仍然可见），点另一张卡直接换内容
+        detailTool?.let { tool ->
+            SideDetailPane(onDismiss = { detailToolID = null }) { close ->
+                ToolDetailCard(tool, session.directory, close)
+            }
+        }
+        reasoningShown?.let { view ->
+            SideDetailPane(onDismiss = { reasoningView = null }) { close ->
+                ReasoningDetailCard(view.text, view.live, close)
+            }
+        }
+    } else {
+        detailTool?.let { tool ->
+            DetailOverlay(onDismiss = { detailToolID = null }) { close ->
+                ToolDetailCard(tool, session.directory, close)
+            }
+        }
+        reasoningShown?.let { view ->
+            DetailOverlay(onDismiss = { reasoningView = null }) { close ->
+                ReasoningDetailCard(view.text, view.live, close)
+            }
+        }
     }
 
     if (showFilePicker) {
@@ -871,6 +919,7 @@ private fun ChatComposer(
     onStop: () -> Unit,
 ) {
     var actionsOpen by rememberSaveable { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
     val rotation by animateFloatAsState(if (actionsOpen) 45f else 0f, label = "plus-rotate")
     val slashQuery = if (value.startsWith("/") && !value.contains(' ')) value.substring(1) else null
     val suggestions = if (slashQuery == null) {
@@ -1015,40 +1064,70 @@ private fun ChatComposer(
                     }
                 }
                 Spacer(Modifier.width(6.dp))
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = onChange,
-                    placeholder = {
-                        if (!actionsOpen) {
-                            Text(
-                                when {
-                                    !busy -> "发消息给 opencode…"
-                                    model.sendMode == "steer" -> "运行中 · 引导当前回答"
-                                    model.sendMode == "interrupt" -> "运行中 · 中断后发送"
-                                    else -> "运行中 · 结束后再发"
-                                },
-                                maxLines = 1,
-                            )
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    singleLine = false,
-                    maxLines = 5,
+                val hint = when {
+                    !busy -> "发消息给 opencode…"
+                    model.sendMode == "steer" -> "运行中 · 引导当前回答"
+                    model.sendMode == "interrupt" -> "运行中 · 中断后发送"
+                    else -> "运行中 · 结束后再发"
+                }
+                // 自绘输入框：比 OutlinedTextField 的默认内边距紧凑，清空按钮能贴右上角
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                     shape = RoundedCornerShape(16.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                    trailingIcon = {
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                    ),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Box(Modifier.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 6.dp)) {
+                        BasicTextField(
+                            value = value,
+                            onValueChange = onChange,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            maxLines = 5,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = if (value.isEmpty()) 0.dp else 24.dp),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (value.isEmpty() && !actionsOpen) {
+                                        Text(
+                                            hint,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    inner()
+                                }
+                            },
+                        )
+                        // 清空按钮贴在输入框右上角；点了先弹确认，避免误删刚打的字
                         if (value.isNotEmpty()) {
-                            IconButton(onClick = { onChange("") }, modifier = Modifier.size(36.dp)) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .clickableNoRipple { confirmClear = true },
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 Icon(
                                     Icons.Rounded.Close,
-                                    contentDescription = "清空",
-                                    modifier = Modifier.size(17.dp),
+                                    contentDescription = "清空输入",
+                                    modifier = Modifier.size(14.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
-                    },
-                )
+                    }
+                }
                 Spacer(Modifier.width(6.dp))
                 val hasContent = value.isNotBlank() || attachments.isNotEmpty()
                 val stopMode = !hasContent && busy
@@ -1082,6 +1161,28 @@ private fun ChatComposer(
                 }
             }
         }
+    }
+
+    if (confirmClear) {
+        AppDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("清空输入？") },
+            text = {
+                Text(
+                    "只会清空输入框里还没发出去的文字，已附加的图片/文件不受影响。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    onChange("")
+                }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("取消") }
+            },
+        )
     }
 }
 
@@ -1156,6 +1257,9 @@ private fun ComposerAction(
         Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(size.dp))
     }
 }
+
+/** 思考详情打开时记住来源：live 表示底部流式区，内容要继续跟着 model.liveReasoning 长。 */
+private data class ReasoningView(val text: String, val live: Boolean)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1406,37 +1510,44 @@ private fun ReasoningBlock(
 }
 
 @Composable
-private fun ReasoningDetailDialog(text: String, onDismiss: () -> Unit) {
+private fun ReasoningDetailCard(text: String, live: Boolean, onClose: () -> Unit) {
     val (contentMin, contentMax) = rememberDialogContentHeight()
-    AppDialog(
-        onDismissRequest = onDismiss,
-        title = {
+    val scroll = rememberScrollState()
+    // 流式思考：内容还在长，跟着滚到底部（用户往上翻过就不要再抢）
+    LaunchedEffect(text.length, live) {
+        if (live && scroll.maxValue - scroll.value < 120) scroll.scrollTo(scroll.maxValue)
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 6.dp,
+        modifier = Modifier
+            .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 8.dp)
+            .fillMaxWidth()
+            .widthIn(max = 520.dp),
+    ) {
+        Column(Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                DialogBackButton(onClick = onDismiss)
+                DialogBackButton(onClick = onClose)
                 Spacer(Modifier.width(4.dp))
-                Text("思考过程 · ${text.length} 字")
-            }
-        },
-        text = {
-            Box(
-                Modifier
-                    .heightIn(min = contentMin, max = contentMax)
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 5.dp),
-            ) {
-                MarkdownText(
-                    text,
-                    Modifier.fillMaxWidth(),
-                    compact = true,
+                Text(
+                    "思考过程 · ${text.length} 字",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-        },
-        contentPadding = 10.dp,
-        outerHorizontalPadding = 8.dp,
-        outerTopPadding = 16.dp,
-        outerBottomPadding = 8.dp,
-        maxContentHeight = contentMax,
-    )
+            Column(
+                Modifier
+                    .padding(top = 10.dp)
+                    .heightIn(min = contentMin, max = contentMax)
+                    .verticalScroll(scroll)
+                    .padding(vertical = 5.dp),
+            ) {
+                MarkdownText(text, Modifier.fillMaxWidth(), compact = true)
+            }
+        }
+    }
 }
 
 @Composable
@@ -1831,7 +1942,7 @@ private fun ToolBlock(
 }
 
 @Composable
-private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: () -> Unit) {
+private fun ToolDetailCard(part: Part.Tool, baseDir: String = "", onClose: () -> Unit) {
     val (contentMin, contentMax) = rememberDialogContentHeight()
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isWriteTool = part.name == "write"
@@ -1858,25 +1969,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
         "running" -> Sky
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    var shown by remember { mutableStateOf(false) }
-    var closing by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-    LaunchedEffect(closing) {
-        if (closing) {
-            kotlinx.coroutines.delay(90)
-            onDismiss()
-        }
-    }
-    Dialog(
-        onDismissRequest = { closing = true },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        androidx.compose.animation.AnimatedVisibility(
-            visible = shown && !closing,
-            enter = androidx.compose.animation.fadeIn(tween(80)),
-            exit = androidx.compose.animation.fadeOut(tween(70)),
-        ) {
-            Surface(
+    Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(16.dp),
                 tonalElevation = 6.dp,
@@ -1887,7 +1980,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
             ) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        DialogBackButton(onClick = { closing = true })
+                        DialogBackButton(onClick = onClose)
                         Spacer(Modifier.width(4.dp))
                         Icon(
                             toolIcon(part.name),
@@ -2002,8 +2095,6 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                     }
                 }
             }
-        }
-    }
 }
 
 private fun toolStatusLabel(part: Part.Tool): String = when {
@@ -2408,15 +2499,25 @@ private fun FieldEditor(
                         // 自己输入时，上面的单选选项自动取消
                         if (field.type != "multiselect") multis[field.key]?.clear()
                     },
-                    enabled = !singleChosen,
                     placeholder = {
                         Text(
                             field.placeholder.ifBlank {
-                                if (field.options.isNotEmpty()) "或者直接输入…" else ""
+                                when {
+                                    singleChosen -> "点这里输入自定义回答（会取消上面的选择）"
+                                    field.options.isNotEmpty() -> "或者直接输入…"
+                                    else -> ""
+                                }
                             },
                         )
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { state ->
+                            // 焦点落到输入框就取消单选：否则选了选项后输入框被禁用，永远改不回来
+                            if (state.isFocused && field.type != "multiselect") {
+                                if (!(multis[field.key]?.isEmpty() ?: true)) multis[field.key]?.clear()
+                            }
+                        },
                     maxLines = 4,
                 )
             }
@@ -2435,34 +2536,69 @@ private fun FieldEditor(
 @Composable
 private fun OptionChips(field: FormField, multis: MutableMap<String, MutableList<String>>, values: MutableMap<String, String>) {
     val selected = multis.getOrPut(field.key) { mutableListOf() }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
+    val primary = MaterialTheme.colorScheme.primary
+    val isMulti = field.type == "multiselect"
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
         field.options.forEach { option ->
             val isSelected = option.value in selected
             Surface(
                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(8.dp),
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isSelected) primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickableNoRipple {
                         if (isSelected) selected.remove(option.value)
-                        else if (field.type == "multiselect") selected.add(option.value)
+                        else if (isMulti) selected.add(option.value)
                         else {
                             selected.clear()
                             selected.add(option.value)
-                            // 单选选中后清空自定义输入（输入框会被禁用）
+                            // 单选选中后清空自定义输入
                             values[field.key] = ""
                         }
                     },
             ) {
-                Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-                    Text(option.label, style = MaterialTheme.typography.bodySmall)
-                    if (option.description.isNotBlank()) {
+                Row(
+                    Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 选中状态一定要看得出来：单选是圆点，多选是打勾方块
+                    val markShape = if (isMulti) RoundedCornerShape(4.dp) else CircleShape
+                    Box(
+                        Modifier
+                            .size(16.dp)
+                            .border(1.5.dp, if (isSelected) primary else MaterialTheme.colorScheme.outline, markShape)
+                            .background(if (isSelected) primary else Color.Transparent, markShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isSelected) {
+                            Box(
+                                Modifier
+                                    .size(6.dp)
+                                    .background(MaterialTheme.colorScheme.onPrimary, CircleShape),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(9.dp))
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            option.description,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            option.label,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurface,
                         )
+                        if (option.description.isNotBlank()) {
+                            Text(
+                                option.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

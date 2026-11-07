@@ -32,6 +32,25 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("opencode-mobile", Application.MODE_PRIVATE)
 
+    // 打开的会话（卷帘里的标签）：只在用户手动 × 或删除会话时才移除，
+    // 并且持久化，重启 App 后仍然在。运行中/有后台 shell 不会自动塞进来。
+    private fun persistOpenSessions() {
+        prefs.edit()
+            .putString("open_sessions", openSessions.joinToString("\n") { it.id })
+            .apply()
+    }
+
+    private fun restoreOpenSessions() {
+        if (openSessions.isNotEmpty()) return
+        val ids = prefs.getString("open_sessions", "").orEmpty()
+            .split('\n')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        if (ids.isEmpty()) return
+        val restored = ids.mapNotNull { id -> sessions.firstOrNull { it.id == id } }
+        if (restored.isNotEmpty()) openSessions = restored.take(20)
+    }
+
     // ---- 连接 ---------------------------------------------------------------
     var serverUrl by mutableStateOf(prefs.getString("url", "") ?: "")
         private set
@@ -522,6 +541,37 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (!connected && !connecting && serverUrl.isNotBlank()) retryNow()
     }
 
+    /**
+     * 从后台 / 锁屏回到前台：SSE 可能已经断了一段时间，界面上的「正在思考 / 第 N 步」
+     * 是旧事件攒出来的，会和服务端实际状态对不上。这里强制同步一次运行状态和最新消息。
+     */
+    fun refreshOnResume() {
+        if (!connected) {
+            retryIfNeeded()
+            return
+        }
+        val c = client ?: return
+        refreshSessions()
+        viewModelScope.launch {
+            val active = withContext(Dispatchers.IO) {
+                runCatching { c.activeSessionIds() }.getOrNull()
+            }
+            if (active != null) {
+                activeIds = active
+                val cur = current
+                if (cur != null && cur.id !in active) {
+                    sending = false
+                    liveText = ""
+                    liveReasoning = ""
+                    statusLine = ""
+                }
+            }
+            loadMessages(silent = true)
+            loadInbox()
+            refreshShells(current?.directory)
+        }
+    }
+
     // =========================================================================
     // 会话
     // =========================================================================
@@ -548,6 +598,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 openSessions = openSessions.map { old ->
                     sessions.firstOrNull { it.id == old.id } ?: old
                 }
+                restoreOpenSessions()
             } catch (e: Exception) {
                 connectionError = e.message
             } finally {
@@ -560,6 +611,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         current?.let { prev -> if (prev.id != session.id) saveMessageCache(prev.id) }
         current = session
         openSessions = (listOf(session) + openSessions.filterNot { it.id == session.id }).take(20)
+        persistOpenSessions()
         val cached = sessionMessageCache[session.id]
         messages = cached?.messages ?: emptyList()
         olderCursor = cached?.cursor
@@ -600,6 +652,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** 关闭「打开的会话」里的一个：如果是当前会话，就切到下一个，没有就回到列表。 */
     fun closeOpenSession(id: String) {
         openSessions = openSessions.filterNot { it.id == id }
+        persistOpenSessions()
         if (current?.id == id) {
             val next = openSessions.firstOrNull()
             if (next != null) openSession(next) else closeSession()
@@ -609,6 +662,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** 退出多会话切换状态：全部关掉，回到会话列表。 */
     fun closeAllOpenSessions() {
         openSessions = emptyList()
+        persistOpenSessions()
         closeSession()
     }
 
@@ -934,6 +988,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             try {
                 withContext(Dispatchers.IO) { c.deleteSession(id) }
                 openSessions = openSessions.filterNot { it.id == id }
+                persistOpenSessions()
                 if (current?.id == id) closeSession()
                 refreshSessions()
             } catch (e: Exception) {

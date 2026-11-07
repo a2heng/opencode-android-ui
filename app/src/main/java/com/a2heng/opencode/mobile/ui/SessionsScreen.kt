@@ -1,5 +1,6 @@
 package com.a2heng.opencode.mobile.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,9 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
@@ -39,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,6 +71,7 @@ fun SessionsScreen(
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var grouped by rememberSaveable { mutableStateOf(true) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
     val list = remember(model.sessions, query) {
         val q = query.trim().lowercase()
         if (q.isEmpty()) model.sessions
@@ -87,48 +96,107 @@ fun SessionsScreen(
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
+            // 顶部只留一行：搜索 / 数量 / 排序 / 新建（圆形 +）
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("搜索会话") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { model.refreshSessions() }) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
-                }
-            }
-
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "共 ${list.size} 个会话",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { grouped = true }) {
-                    Text(
-                        "按文件夹",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (grouped) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                if (searchOpen) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Rounded.Search,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            val focus = remember { FocusRequester() }
+                            LaunchedEffect(Unit) { focus.requestFocus() }
+                            BasicTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(focus),
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (query.isEmpty()) {
+                                            Text(
+                                                "搜索会话",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "关闭搜索",
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickableNoRipple {
+                                searchOpen = false
+                                query = ""
+                            },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-                TextButton(onClick = { grouped = false }) {
+                } else {
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = "搜索",
+                        modifier = Modifier
+                            .size(17.dp)
+                            .clickableNoRipple { searchOpen = true },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
-                        "按时间",
+                        "共 ${list.size} 个会话",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (!grouped) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    SortLabel("按文件夹", grouped) { grouped = true }
+                    Spacer(Modifier.width(8.dp))
+                    SortLabel("按时间", !grouped) { grouped = false }
+                }
+                Spacer(Modifier.width(8.dp))
+                // 新建会话：圆形 +，固定在右上角
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        .clickableNoRipple(onNewSession),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.Add,
+                        contentDescription = "新建会话",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
             }
@@ -139,7 +207,7 @@ fun SessionsScreen(
                         CircularProgressIndicator(strokeWidth = 2.dp)
                     }
                 }
-                list.isEmpty() -> EmptyState("还没有会话", "点右下角新建一个，或在电脑上先跑起来")
+                list.isEmpty() -> EmptyState("还没有会话", "点右上角 + 新建一个，或在电脑上先跑起来")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     if (running.isNotEmpty()) {
                         stickyHeader(key = "running") {
@@ -170,22 +238,25 @@ fun SessionsScreen(
                             SessionRow(model, session, onOpenCache)
                         }
                     }
-                    item { Spacer(Modifier.height(90.dp)) }
+                    item { Spacer(Modifier.height(16.dp)) }
                 }
             }
         }
-
-        ExtendedFloatingActionButton(
-            onClick = onNewSession,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(18.dp),
-            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-            text = { Text("新建会话") },
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        )
     }
+}
+
+@Composable
+private fun SortLabel(text: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        modifier = Modifier
+            .clickableNoRipple(onClick)
+            .padding(horizontal = 2.dp, vertical = 4.dp),
+    )
 }
 
 @Composable
@@ -194,7 +265,7 @@ private fun RunningHeader(count: Int) {
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 5.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -223,7 +294,7 @@ private fun RecentHeader() {
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 5.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -259,7 +330,7 @@ private fun FolderHeader(dir: String, count: Int, home: String) {
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 5.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -321,7 +392,7 @@ private fun SessionRow(
                 },
             )
             .clickableNoRipple { model.openSession(session) }
-            .padding(start = 8.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 8.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val rate = session.tokens?.hitRate ?: 0.0
@@ -341,21 +412,20 @@ private fun SessionRow(
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 modifier = Modifier
-                    .width(46.dp)
-                    .padding(vertical = 7.dp),
+                    .width(44.dp)
+                    .padding(vertical = 4.dp),
             )
         }
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 session.shortTitle,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(2.dp))
             Text(
                 buildList {
                     add(session.directory.substringAfterLast('/').ifBlank { session.directory })

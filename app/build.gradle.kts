@@ -13,9 +13,9 @@ plugins {
 fun envValue(name: String): String? = System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
 
 val omVersionName: String =
-    (findProperty("omVersionName") as String?) ?: envValue("OM_VERSION_NAME") ?: "0.3.5"
+    (findProperty("omVersionName") as String?) ?: envValue("OM_VERSION_NAME") ?: "0.3.6"
 val omVersionCode: Int =
-    ((findProperty("omVersionCode") as String?) ?: envValue("OM_VERSION_CODE") ?: "305").toInt()
+    ((findProperty("omVersionCode") as String?) ?: envValue("OM_VERSION_CODE") ?: "306").toInt()
 
 // ---------------------------------------------------------------------------
 // release 签名：凭据一律走环境变量，keystore 放在仓库外。

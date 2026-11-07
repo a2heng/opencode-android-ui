@@ -39,7 +39,8 @@ fun AppDialog(
     dismissButton: (@Composable () -> Unit)? = null,
     contentPadding: androidx.compose.ui.unit.Dp = 24.dp,
     outerHorizontalPadding: androidx.compose.ui.unit.Dp = 24.dp,
-    outerVerticalPadding: androidx.compose.ui.unit.Dp = 32.dp,
+    outerTopPadding: androidx.compose.ui.unit.Dp = 32.dp,
+    outerBottomPadding: androidx.compose.ui.unit.Dp = 32.dp,
     maxContentHeight: androidx.compose.ui.unit.Dp = 500.dp,
 ) {
     var backProgress by remember { mutableFloatStateOf(0f) }
@@ -65,7 +66,12 @@ fun AppDialog(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             modifier = Modifier
-                .padding(horizontal = outerHorizontalPadding, vertical = outerVerticalPadding)
+                .padding(
+                    start = outerHorizontalPadding,
+                    end = outerHorizontalPadding,
+                    top = outerTopPadding,
+                    bottom = outerBottomPadding,
+                )
                 .imePadding()
                 .fillMaxWidth()
                 .widthIn(max = 520.dp)

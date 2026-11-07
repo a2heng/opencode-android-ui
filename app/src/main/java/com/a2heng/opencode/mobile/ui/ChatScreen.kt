@@ -1403,7 +1403,8 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                 Box(
                     Modifier
                         .heightIn(max = 460.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 6.dp),
                 ) {
                     MarkdownText(
                         text,
@@ -1414,7 +1415,8 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
             },
             contentPadding = 10.dp,
             outerHorizontalPadding = 8.dp,
-            outerVerticalPadding = 24.dp,
+            outerTopPadding = 16.dp,
+            outerBottomPadding = 8.dp,
             maxContentHeight = 680.dp,
         )
     }
@@ -1869,11 +1871,11 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                 shape = RoundedCornerShape(deviceCorner),
                 tonalElevation = 6.dp,
                 modifier = Modifier
-                    .padding(horizontal = 8.dp, vertical = 24.dp)
+                    .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 8.dp)
                     .fillMaxWidth()
                     .widthIn(max = 720.dp),
             ) {
-                Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         DialogBackButton(onClick = { closing = true })
                         Spacer(Modifier.width(4.dp))
@@ -1911,7 +1913,8 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                     Column(
                         Modifier
                             .heightIn(max = 680.dp)
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 4.dp),
                     ) {
                         if (isReadTool) {
                             if (readBody.isNotBlank()) {

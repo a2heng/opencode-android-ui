@@ -1253,6 +1253,7 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp)
+            .clickableNoRipple { expanded = true }
             .animateContentSize(tween(durationMillis = 120)),
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -1302,12 +1303,9 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                         .heightIn(max = 460.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    Text(
+                    MarkdownText(
                         text,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        Modifier.fillMaxWidth(),
                     )
                 }
             },
@@ -1463,6 +1461,7 @@ private fun ToolBlock(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp)
+            .clickableNoRipple { onOpen(part) }
             .animateContentSize(tween(durationMillis = 120)),
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -1655,7 +1654,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
     LaunchedEffect(Unit) { shown = true }
     LaunchedEffect(closing) {
         if (closing) {
-            kotlinx.coroutines.delay(160)
+            kotlinx.coroutines.delay(110)
             onDismiss()
         }
     }
@@ -1665,15 +1664,15 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
     ) {
         androidx.compose.animation.AnimatedVisibility(
             visible = shown && !closing,
-            enter = androidx.compose.animation.fadeIn(tween(150)) +
+            enter = androidx.compose.animation.fadeIn(tween(90)) +
                 androidx.compose.animation.scaleIn(
-                    initialScale = 0.90f,
-                    animationSpec = tween(190, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                    initialScale = 0.96f,
+                    animationSpec = tween(110, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                 ),
-            exit = androidx.compose.animation.fadeOut(tween(130)) +
+            exit = androidx.compose.animation.fadeOut(tween(80)) +
                 androidx.compose.animation.scaleOut(
-                    targetScale = 0.94f,
-                    animationSpec = tween(150, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                    targetScale = 0.98f,
+                    animationSpec = tween(90, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                 ),
         ) {
             Surface(
@@ -1725,54 +1724,23 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                     ) {
                         if (isReadTool) {
                             if (readBody.isNotBlank()) {
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
-                                            RoundedCornerShape(8.dp),
-                                        )
-                                        .padding(10.dp),
-                                ) {
-                                    Text(
-                                        readBody.take(30000),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 10.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-                        } else if (isWriteTool) {
-                            // write：上面是文件路径，下面直接显示写入的内容（不是状态/输出）
-                            if (part.input.isNotBlank()) {
                                 Text(
-                                    part.input,
+                                    readBody.take(30000),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 10.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                 )
-                                Spacer(Modifier.height(6.dp))
                             }
+                        } else if (isWriteTool) {
                             if (part.payload.isNotBlank()) {
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
-                                            RoundedCornerShape(8.dp),
-                                        )
-                                        .padding(10.dp),
-                                ) {
-                                    Text(
-                                        part.payload.take(20000),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 10.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
+                                Text(
+                                    part.payload.take(20000),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
                             } else {
                                 Text(
                                     "（没有写入内容）",
@@ -2259,7 +2227,8 @@ private fun OptionChips(field: FormField, multis: MutableMap<String, MutableList
                         else {
                             selected.clear()
                             selected.add(option.value)
-                            values[field.key] = option.value
+                            // 单选选中后清空自定义输入（输入框会被禁用）
+                            values[field.key] = ""
                         }
                     },
             ) {

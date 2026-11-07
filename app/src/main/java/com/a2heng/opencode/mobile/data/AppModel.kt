@@ -603,9 +603,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     c.messagesPage(s.id, limit = 40, order = "desc")
                 }
                 if (current?.id != s.id) return@launch
-                val fresh = collapseMessages(page.messages)
+                val fresh = collapseMessages(page.messages).asReversed()
                 val freshIds = fresh.map { it.id }.toHashSet()
-                val merged = (fresh + messages.filterNot { it.id in freshIds }).sortedBy { it.created }
+                // 服务端顺序是权威的：老的在前，最新一页接在后面；不要按 created 重排
+                val merged = messages.filterNot { it.id in freshIds } + fresh
                 messages = merged
                 if (olderCursor == null || merged.size == fresh.size) {
                     olderCursor = page.next
@@ -645,14 +646,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     c.messagesPage(s.id, limit = 40, cursor = cursor)
                 }
                 if (current?.id != s.id) return@launch
-                val incoming = collapseMessages(page.messages)
+                val incoming = collapseMessages(page.messages).asReversed()
                 if (incoming.isEmpty()) {
                     olderCursor = null
                     hasOlderMessages = false
                     return@launch
                 }
                 val ids = messages.map { it.id }.toHashSet()
-                messages = (incoming.filterNot { it.id in ids } + messages).sortedBy { it.created }
+                messages = incoming.filterNot { it.id in ids } + messages
                 olderCursor = page.next
                 hasOlderMessages = page.next != null
             } catch (e: Exception) {

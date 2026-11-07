@@ -1,18 +1,27 @@
 package com.a2heng.opencode.mobile.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -21,6 +30,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -36,6 +46,112 @@ import androidx.compose.ui.unit.sp
 private sealed interface Block {
     data class Text(val text: String) : Block
     data class Code(val lang: String, val code: String) : Block
+}
+
+private sealed interface Line {
+    data class Heading(val level: Int, val text: String) : Line
+    data class Quote(val text: String) : Line
+    data class ListItem(val indent: Int, val marker: String, val text: String) : Line
+    data class Para(val text: String) : Line
+    data class Table(
+        val headers: List<String>,
+        val rows: List<List<String>>,
+        val aligns: List<Int>,
+    ) : Line
+    data object Rule : Line
+    data object Gap : Line
+}
+
+private val headingRe = Regex("^(#{1,6})\\s+(.*)$")
+private val quoteRe = Regex("^\\s*>\\s?(.*)$")
+private val listRe = Regex("^(\\s*)([-*+]|\\d+[.)])\\s+(.*)$")
+private val ruleRe = Regex("^\\s*(---+|\\*\\*\\*+|___+)\\s*$")
+
+private fun splitRow(line: String): List<String> =
+    line.trim().trim('|').split('|').map { it.trim() }
+
+private fun isTableSeparator(line: String): Boolean {
+    val t = line.trim()
+    if (!t.contains('-')) return false
+    val cells = t.trim('|').split('|')
+    return cells.isNotEmpty() && cells.all { Regex("^:?-{2,}:?$").matches(it.trim()) }
+}
+
+private fun tableAligns(line: String): List<Int> =
+    splitRow(line).map { cell ->
+        when {
+            cell.startsWith(":") && cell.endsWith(":") -> 0
+            cell.endsWith(":") -> 1
+            else -> -1
+        }
+    }
+
+private fun parseLines(text: String): List<Line> {
+    val lines = text.split('\n')
+    val out = mutableListOf<Line>()
+    val para = mutableListOf<String>()
+    fun flush() {
+        if (para.isNotEmpty()) {
+            out += Line.Para(para.joinToString("\n"))
+            para.clear()
+        }
+    }
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i].trimEnd()
+        // 竖线表格：| a | b | + | --- | --- |
+        if (line.trimStart().startsWith("|") && i + 1 < lines.size && isTableSeparator(lines[i + 1])) {
+            flush()
+            val headers = splitRow(line)
+            val aligns = tableAligns(lines[i + 1])
+            i += 2
+            val rows = mutableListOf<List<String>>()
+            while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                rows += splitRow(lines[i])
+                i++
+            }
+            out += Line.Table(headers, rows, aligns)
+            continue
+        }
+        val h = headingRe.find(line)
+        if (h != null) {
+            flush()
+            out += Line.Heading(h.groupValues[1].length, h.groupValues[2].trim())
+            i++
+            continue
+        }
+        if (line.isBlank()) {
+            flush()
+            out += Line.Gap
+            i++
+            continue
+        }
+        if (ruleRe.matches(line)) {
+            flush()
+            out += Line.Rule
+            i++
+            continue
+        }
+        val q = quoteRe.find(line)
+        if (q != null) {
+            flush()
+            out += Line.Quote(q.groupValues[1])
+            i++
+            continue
+        }
+        val l = listRe.find(line)
+        if (l != null) {
+            flush()
+            val indent = l.groupValues[1].length / 2
+            out += Line.ListItem(indent, l.groupValues[2], l.groupValues[3])
+            i++
+            continue
+        }
+        para += line
+        i++
+    }
+    flush()
+    return out
 }
 
 private fun splitBlocks(source: String): List<Block> {
@@ -122,6 +238,134 @@ private fun inline(text: String, code: Color, link: Color): AnnotatedString = bu
 }
 
 @Composable
+private fun MarkdownTable(
+    line: Line.Table,
+    codeColor: Color,
+    linkColor: Color,
+) {
+    val colCount = line.headers.size.coerceAtLeast(1)
+    val widths = (0 until colCount).map { c ->
+        val maxLen = (listOf(line.headers.getOrElse(c) { "" }) + line.rows.map { it.getOrElse(c) { "" } })
+            .maxOfOrNull { it.length } ?: 0
+        (maxLen * 7).coerceIn(64, 220).dp
+    }
+    val grid = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+    Row(
+        Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+    ) {
+        Column {
+            Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))) {
+                line.headers.forEachIndexed { c, cell ->
+                    Text(
+                        inline(cell, codeColor, linkColor),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .width(widths[c])
+                            .border(0.5.dp, grid)
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                    )
+                }
+            }
+            line.rows.forEachIndexed { r, row ->
+                Row(
+                    Modifier.background(
+                        if (r % 2 == 0) Color.Transparent
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+                    ),
+                ) {
+                    (0 until colCount).forEach { c ->
+                        val cell = row.getOrElse(c) { "" }
+                        Text(
+                            inline(cell, codeColor, linkColor),
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = when (line.aligns.getOrElse(c) { -1 }) {
+                                0 -> TextAlign.Center
+                                1 -> TextAlign.End
+                                else -> TextAlign.Start
+                            },
+                            modifier = Modifier
+                                .width(widths[c])
+                                .border(0.5.dp, grid)
+                                .padding(horizontal = 6.dp, vertical = 5.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color) {
+    val lines = remember(text) { parseLines(text) }
+    Column(Modifier.fillMaxWidth()) {
+        lines.forEach { line ->
+            when (line) {
+                is Line.Heading -> Text(
+                    inline(line.text, codeColor, linkColor),
+                    style = when (line.level) {
+                        1 -> MaterialTheme.typography.titleLarge
+                        2 -> MaterialTheme.typography.titleMedium
+                        else -> MaterialTheme.typography.titleSmall
+                    },
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                )
+                is Line.Quote -> Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .padding(vertical = 2.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .width(3.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f), RoundedCornerShape(2.dp)),
+                    )
+                    Text(
+                        inline(line.text, codeColor, linkColor),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+                is Line.ListItem -> Row(
+                    Modifier.padding(start = (line.indent * 12).dp, top = 1.dp, bottom = 1.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        if (line.marker in listOf("-", "*", "+")) "•" else line.marker,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(18.dp),
+                    )
+                    Text(
+                        inline(line.text, codeColor, linkColor),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                is Line.Table -> MarkdownTable(line, codeColor, linkColor)
+                Line.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                Line.Gap -> Spacer(Modifier.height(6.dp))
+                is Line.Para -> SelectionContainer {
+                    Text(
+                        inline(line.text, codeColor, linkColor),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = 1.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     val blocks = remember(text) { splitBlocks(text) }
     val codeColor = MaterialTheme.colorScheme.primary
@@ -160,15 +404,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                         )
                     }
                 }
-                is Block.Text -> {
-                    SelectionContainer {
-                        Text(
-                            inline(block.text, codeColor, linkColor),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(vertical = 1.dp),
-                        )
-                    }
-                }
+                is Block.Text -> MarkdownLines(block.text, codeColor, linkColor)
             }
         }
     }

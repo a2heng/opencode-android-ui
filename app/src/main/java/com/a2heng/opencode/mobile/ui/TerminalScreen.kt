@@ -293,10 +293,8 @@ private fun arrowSeq(dir: Char, ctrl: Boolean, shift: Boolean, alt: Boolean): St
 }
 
 /**
- * 按键区（两行）：
- *   左侧功能键 5 列：A− Esc ^C Ctrl Alt / A+ Tab 回车 Shift Del
- *   右侧方向区 3 列：Home ↑ End / ← ↓ →
- * compact = 横屏（右侧窄条里上下排）。
+ * 按键区（固定两行）：功能键 5 列 + 方向键 3 列，共 8 列。
+ * 整体按可用宽度自适应缩放，横屏窄条里也不会溢出。
  */
 @Composable
 private fun TerminalControls(
@@ -307,71 +305,85 @@ private fun TerminalControls(
     compact: Boolean,
     onMods: (Boolean, Boolean, Boolean) -> Unit,
 ) {
-    val keys: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                KeyChip("A−") { model.updatePtyFontSize(model.ptyFontSize - 1f) }
-                KeyChip("Esc") { model.sendPty("\u001b") }
-                KeyChip("^C") { model.sendPty("\u0003") }
-                ToggleChip("Ctrl", ctrl) { onMods(!ctrl, shift, alt) }
-                ToggleChip("Alt", alt) { onMods(ctrl, shift, !alt) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                KeyChip("A+") { model.updatePtyFontSize(model.ptyFontSize + 1f) }
-                KeyChip("Tab") { model.sendPty(if (shift) "\u001b[Z" else "\t") }
-                EnterChip { cr -> model.sendPty(if (cr) "\r" else "\n") }
-                ToggleChip("Shift", shift) { onMods(ctrl, !shift, alt) }
-                KeyChip("Del") { model.sendPty("\u007f") }
-            }
-        }
-    }
-    val pad: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                KeyChip("Home") { model.sendPty("\u001b[H") }
-                KeyChip("↑") { model.sendPty(arrowSeq('A', ctrl, shift, alt)) }
-                KeyChip("End") { model.sendPty("\u001b[F") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                KeyChip("←") { model.sendPty(arrowSeq('D', ctrl, shift, alt)) }
-                KeyChip("↓") { model.sendPty(arrowSeq('B', ctrl, shift, alt)) }
-                KeyChip("→") { model.sendPty(arrowSeq('C', ctrl, shift, alt)) }
-            }
-        }
-    }
+    androidx.compose.foundation.layout.BoxWithConstraints {
+        val gap = 2.dp
+        // 8 列 + 7 个列间距 + 两组之间的 8dp
+        val chipW = ((maxWidth - gap * 7 - 8.dp) / 8).coerceIn(24.dp, 36.dp)
+        val chipH = (chipW * 0.72f).coerceIn(20.dp, 26.dp)
+        val chipFont = (chipW.value * 0.28f).coerceIn(7f, 9f).sp
 
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        keys()
-        pad()
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    KeyChip("A−", chipW, chipH, chipFont) { model.updatePtyFontSize(model.ptyFontSize - 1f) }
+                    KeyChip("Esc", chipW, chipH, chipFont) { model.sendPty("\u001b") }
+                    KeyChip("^C", chipW, chipH, chipFont) { model.sendPty("\u0003") }
+                    ToggleChip("Ctrl", ctrl, chipW, chipH, chipFont) { onMods(!ctrl, shift, alt) }
+                    ToggleChip("Alt", alt, chipW, chipH, chipFont) { onMods(ctrl, shift, !alt) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    KeyChip("A+", chipW, chipH, chipFont) { model.updatePtyFontSize(model.ptyFontSize + 1f) }
+                    KeyChip("Tab", chipW, chipH, chipFont) { model.sendPty(if (shift) "\u001b[Z" else "\t") }
+                    EnterChip(chipW, chipH, chipFont) { cr -> model.sendPty(if (cr) "\r" else "\n") }
+                    ToggleChip("Shift", shift, chipW, chipH, chipFont) { onMods(ctrl, !shift, alt) }
+                    KeyChip("Del", chipW, chipH, chipFont) { model.sendPty("\u007f") }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    KeyChip("Home", chipW, chipH, chipFont) { model.sendPty("\u001b[H") }
+                    KeyChip("↑", chipW, chipH, chipFont) { model.sendPty(arrowSeq('A', ctrl, shift, alt)) }
+                    KeyChip("End", chipW, chipH, chipFont) { model.sendPty("\u001b[F") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    KeyChip("←", chipW, chipH, chipFont) { model.sendPty(arrowSeq('D', ctrl, shift, alt)) }
+                    KeyChip("↓", chipW, chipH, chipFont) { model.sendPty(arrowSeq('B', ctrl, shift, alt)) }
+                    KeyChip("→", chipW, chipH, chipFont) { model.sendPty(arrowSeq('C', ctrl, shift, alt)) }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun KeyChip(label: String, onClick: () -> Unit) {
+private fun KeyChip(
+    label: String,
+    w: androidx.compose.ui.unit.Dp,
+    h: androidx.compose.ui.unit.Dp,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    onClick: () -> Unit,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(7.dp),
         modifier = Modifier
-            .size(width = 36.dp, height = 26.dp)
+            .size(w, h)
             .clickableNoRipple(onClick),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 label,
-                fontSize = 9.sp,
+                fontSize = fontSize,
                 maxLines = 1,
+                softWrap = false,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 2.dp),
             )
         }
     }
 }
 
 @Composable
-private fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
+private fun ToggleChip(
+    label: String,
+    on: Boolean,
+    w: androidx.compose.ui.unit.Dp,
+    h: androidx.compose.ui.unit.Dp,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    onClick: () -> Unit,
+) {
     Surface(
         color = if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
         else MaterialTheme.colorScheme.surfaceVariant,
@@ -384,31 +396,37 @@ private fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
         ),
         shape = RoundedCornerShape(7.dp),
         modifier = Modifier
-            .size(width = 36.dp, height = 26.dp)
+            .size(w, h)
             .clickableNoRipple(onClick),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 label,
-                fontSize = 9.sp,
+                fontSize = fontSize,
                 fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
+                softWrap = false,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 2.dp),
             )
         }
     }
 }
 
+/** 回车：点=CR，长按=LF。 */
 @Composable
-private fun EnterChip(onSend: (Boolean) -> Unit) {
+private fun EnterChip(
+    w: androidx.compose.ui.unit.Dp,
+    h: androidx.compose.ui.unit.Dp,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    onSend: (Boolean) -> Unit,
+) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Surface(
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         shape = RoundedCornerShape(7.dp),
         modifier = Modifier
-            .size(width = 36.dp, height = 26.dp)
+            .size(w, h)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { onSend(true) },
@@ -420,7 +438,7 @@ private fun EnterChip(onSend: (Boolean) -> Unit) {
             },
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("回车", fontSize = 9.sp, maxLines = 1, textAlign = TextAlign.Center)
+            Text("回车", fontSize = fontSize, maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
         }
     }
 }

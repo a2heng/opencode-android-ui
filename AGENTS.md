@@ -68,7 +68,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 左右按钮不要太大（当前 40dp 圆形「+」、42dp 发送/停止），否则输入框太窄、不够紧凑；左右边距 6dp。
 - 输入框**多行**（`singleLine = false`，`maxLines = 5`）：换行时能显示多行、光标可在行间移动，不要只显示第一行。
 - 右下角按钮始终显示：有文字/图片 → 发送（主题色箭头）；运行中空输入 → 停止（红色方块，确认后中断）；空闲空输入 → 灰色不可用箭头（不要隐藏，也不要换成叉）。
-- 客户端命令既认 `/compact` 也认裸 `compact`（interrupt/model/agent/reload 同理）；compact 时 Toast 提示「正在压缩上下文…」，compaction 事件驱动 LiveBubble 的压缩状态。
+- 客户端命令**必须带斜杠**（`/compact`、`/interrupt`、`/model`、`/agent`、`/reload`）；裸写的 `compact` 等一律当普通文本发送，避免误触发。compact 时 Toast 提示「正在压缩上下文…」，compaction 事件驱动 LiveBubble 的压缩状态。
 - 排队 / steer 发送后**不要改 statusLine**，保留服务端真实状态；用户知道自己已经插进队列，多余的提示只会带来 bug。
 
 ### 4.6 消息与工具卡片
@@ -100,9 +100,9 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - diff 每行 `fontSize = 10.sp` 时必须显式 `lineHeight = 12.sp`（默认 body 行高会虚高），行间 padding 0.5dp。详情弹窗的圆角只加在**外层卡片**（工具详情 16dp、AppDialog 18dp，不用设备 R 角），内部滚动内容不要再单独裁 R 角。
 - Markdown：自己实现的渲染器要支持标题 `#`、列表（`-`/`*`/`+`/数字，显示为 • / 数字）、引用 `>`、分隔线 `---`、竖线表格（带网格线），以及行内 code/粗体/斜体/链接；最终回答和思考详情都要用 `MarkdownText`。展开后的字号要和卡片预览一致（工具 10.5sp；思考详情用 compact Markdown 11sp），别放大导致要滚很多屏。
 - 精简模式也要有一行「思考」（图标 + 思考 + 字数 + 展开），点开看完整思考。
-- 工具卡片和思考一样**直接出现**，不要 `AnimatedVisibility` 的展开/滑入动画（滚动或新工具都不要）；只有消息 item 保留轻微淡入。
+- 工具卡片和思考一样**直接出现**，不要 `AnimatedVisibility` 的展开/滑入动画（滚动或新工具都不要），消息 item 也不做淡入淡出。
 - 消息合并必须 `collapseMessages(page.messages).asReversed()` 后再拼接，**不要 `sortedBy { created }`**；否则队列消息的入队时间会把上一轮工具挤到 pending 后面。
-- 新消息 item 只用 `animateItem` 的 `fadeIn/fadeOut`，**不要 placementSpec**（滚动时位置动画会造成“一点点错位”的抖动）；工具块本身不再做任何展开/滑入动画。
+- 消息 item **不做任何出现/消失动画**（不要 `animateItem` 的 fadeIn/fadeOut：消息合并时会留半透明残影，看起来像卡片“滑了一下”），也不要 placementSpec；工具/思考/正文全部直接凭空出现与消失。
 - Pending 薄行按**旧→新**从上到下排列（新的在最下面），最多 150dp 高。
 - 正文仍是单列：用户气泡靠右，助手内容和工具靠左（不要做左右分栏或左右气泡，用户已确认没有必要）。
 

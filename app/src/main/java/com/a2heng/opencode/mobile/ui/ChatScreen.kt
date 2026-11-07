@@ -410,10 +410,9 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         input = ""
                         // 用「服务端命令 + 客户端内建命令」合并后的列表判断：
                         // compact 这类命令不在 /api/command 里，只看 model.commands 会被当成普通文本发出去。
+                        // 命令必须带斜杠：裸写的 compact / interrupt 等一律当普通文本发出去，避免误触发。
                         val cmd = allCommands(model).firstOrNull {
-                            text == "/" + it.name ||
-                                text.startsWith("/" + it.name + " ") ||
-                                (text == it.name && it.name in setOf("compact", "interrupt", "model", "agent", "reload"))
+                            text == "/" + it.name || text.startsWith("/" + it.name + " ")
                         }
                         if (cmd != null) {
                             when (cmd.name) {
@@ -508,15 +507,9 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                 }
                             }
                             items(model.messages.asReversed(), key = { it.id }) { msg ->
-                                Box(
-                                    Modifier
-                                        .animateItem(
-                                            fadeInSpec = tween(120),
-                                            placementSpec = null,
-                                            fadeOutSpec = tween(100),
-                                        )
-                                        .clipToBounds(),
-                                ) {
+                                // 不做任何出现/消失/位移动画：卡片直接凭空出现、凭空消失。
+                                // animateItem 的 fade 会在消息合并时留下半透明的“残影”，看起来像卡片滑了一下。
+                                Box(Modifier.clipToBounds()) {
                                     MessageItem(
                                         msg = msg,
                                         detail = model.detailLevel,

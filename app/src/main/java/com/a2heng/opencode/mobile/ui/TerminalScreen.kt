@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -59,6 +60,7 @@ import android.graphics.Typeface
 import android.os.Build
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.io.File
@@ -190,7 +192,7 @@ private fun TerminalView(model: AppModel, pty: PtyInfo) {
     val cfg = LocalConfiguration.current
     val wide = cfg.screenWidthDp >= 600
     // 固定键盘占位（不随键盘高度变化）：竖屏底部 42% 高，横屏右侧 34% 宽
-    val reserved = if (wide) (cfg.screenWidthDp * 0.34f).dp else (cfg.screenHeightDp * 0.42f).dp
+    val reserved = if (wide) (cfg.screenWidthDp * 0.37f).dp else (cfg.screenHeightDp * 0.46f).dp
     val controls: @Composable (Boolean) -> Unit = { compact ->
         TerminalControls(model, ctrl, shift, alt, compact) { c, s, a -> ctrl = c; shift = s; alt = a }
     }
@@ -291,9 +293,10 @@ private fun arrowSeq(dir: Char, ctrl: Boolean, shift: Boolean, alt: Boolean): St
 }
 
 /**
- * 按键区：功能键一列，方向区独立。
- * 方向区：上面 Del/Home/End，中间 ↑，下面 ← ↓ →。
- * compact = 横屏（放在右侧窄条里，竖直排列）。
+ * 按键区（两行）：
+ *   左侧功能键 5 列：A− Esc ^C Ctrl Alt / A+ Tab 回车 Shift Del
+ *   右侧方向区 3 列：Home ↑ End / ← ↓ →
+ * compact = 横屏（右侧窄条里上下排）。
  */
 @Composable
 private fun TerminalControls(
@@ -305,38 +308,29 @@ private fun TerminalControls(
     onMods: (Boolean, Boolean, Boolean) -> Unit,
 ) {
     val keys: @Composable () -> Unit = {
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            // 第一列：缩放 / 第二列：Esc
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 KeyChip("A−") { model.updatePtyFontSize(model.ptyFontSize - 1f) }
-                KeyChip("A+") { model.updatePtyFontSize(model.ptyFontSize + 1f) }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 KeyChip("Esc") { model.sendPty("\u001b") }
-                KeyChip("Tab") { model.sendPty(if (shift) "\u001b[Z" else "\t") }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 KeyChip("^C") { model.sendPty("\u0003") }
-                EnterChip { cr -> model.sendPty(if (cr) "\r" else "\n") }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 ToggleChip("Ctrl", ctrl) { onMods(!ctrl, shift, alt) }
-                ToggleChip("Shift", shift) { onMods(ctrl, !shift, alt) }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 ToggleChip("Alt", alt) { onMods(ctrl, shift, !alt) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                KeyChip("A+") { model.updatePtyFontSize(model.ptyFontSize + 1f) }
+                KeyChip("Tab") { model.sendPty(if (shift) "\u001b[Z" else "\t") }
+                EnterChip { cr -> model.sendPty(if (cr) "\r" else "\n") }
+                ToggleChip("Shift", shift) { onMods(ctrl, !shift, alt) }
+                KeyChip("Del") { model.sendPty("\u007f") }
             }
         }
     }
     val pad: @Composable () -> Unit = {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                KeyChip("Del") { model.sendPty("\u007f") }
                 KeyChip("Home") { model.sendPty("\u001b[H") }
-                KeyChip("End") { model.sendPty("\u001b[F") }
-            }
-            Box(Modifier.width(64.dp), contentAlignment = Alignment.Center) {
                 KeyChip("↑") { model.sendPty(arrowSeq('A', ctrl, shift, alt)) }
+                KeyChip("End") { model.sendPty("\u001b[F") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 KeyChip("←") { model.sendPty(arrowSeq('D', ctrl, shift, alt)) }
@@ -346,22 +340,12 @@ private fun TerminalControls(
         }
     }
 
-    if (compact) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            keys()
-            pad()
-        }
-    } else {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            keys()
-            pad()
-        }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        keys()
+        pad()
     }
 }
 
@@ -370,21 +354,24 @@ private fun KeyChip(label: String, onClick: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(7.dp),
-        modifier = Modifier.clickableNoRipple(onClick),
+        modifier = Modifier
+            .size(width = 36.dp, height = 26.dp)
+            .clickableNoRipple(onClick),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 9.sp,
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
-        )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                label,
+                fontSize = 9.sp,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
     }
 }
 
 @Composable
 private fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
-    // 打开时：边框变主题色、文字也用主题色，和普通按键明显区分
     Surface(
         color = if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
         else MaterialTheme.colorScheme.surfaceVariant,
@@ -396,22 +383,23 @@ private fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
             else MaterialTheme.colorScheme.outline.copy(alpha = 0.30f),
         ),
         shape = RoundedCornerShape(7.dp),
-        modifier = Modifier.clickableNoRipple(onClick),
+        modifier = Modifier
+            .size(width = 36.dp, height = 26.dp)
+            .clickableNoRipple(onClick),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 9.sp,
-            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 5.dp),
-        )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                label,
+                fontSize = 9.sp,
+                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
     }
 }
 
-/**
- * 回车键：点一下发 CR（回车），长按发 LF（换行）。
- */
 @Composable
 private fun EnterChip(onSend: (Boolean) -> Unit) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -419,26 +407,23 @@ private fun EnterChip(onSend: (Boolean) -> Unit) {
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         shape = RoundedCornerShape(7.dp),
-        modifier = Modifier.pointerInput(Unit) {
-            detectTapGestures(
-                onTap = { onSend(true) },
-                onLongPress = {
-                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    onSend(false)
-                },
-            )
-        },
+        modifier = Modifier
+            .size(width = 36.dp, height = 26.dp)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onSend(true) },
+                    onLongPress = {
+                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onSend(false)
+                    },
+                )
+            },
     ) {
-        Text(
-            "回车",
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 9.sp,
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
-        )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("回车", fontSize = 9.sp, maxLines = 1, textAlign = TextAlign.Center)
+        }
     }
 }
-
 
 /**
  * 终端字体：优先用打包的 Sarasa Fixed SC（中英文等宽、拉丁 0.5em），

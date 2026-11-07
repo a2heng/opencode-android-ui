@@ -242,6 +242,7 @@ private fun MarkdownTable(
     line: Line.Table,
     codeColor: Color,
     linkColor: Color,
+    compact: Boolean,
 ) {
     val colCount = line.headers.size.coerceAtLeast(1)
     val widths = (0 until colCount).map { c ->
@@ -261,11 +262,12 @@ private fun MarkdownTable(
                     Text(
                         inline(cell, codeColor, linkColor),
                         style = MaterialTheme.typography.bodySmall,
+                        fontSize = if (compact) 10.sp else 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
                             .width(widths[c])
                             .border(0.5.dp, grid)
-                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                            .padding(horizontal = if (compact) 4.dp else 6.dp, vertical = if (compact) 3.dp else 5.dp),
                     )
                 }
             }
@@ -281,6 +283,7 @@ private fun MarkdownTable(
                         Text(
                             inline(cell, codeColor, linkColor),
                             style = MaterialTheme.typography.bodySmall,
+                            fontSize = if (compact) 10.sp else 11.sp,
                             textAlign = when (line.aligns.getOrElse(c) { -1 }) {
                                 0 -> TextAlign.Center
                                 1 -> TextAlign.End
@@ -289,7 +292,7 @@ private fun MarkdownTable(
                             modifier = Modifier
                                 .width(widths[c])
                                 .border(0.5.dp, grid)
-                                .padding(horizontal = 6.dp, vertical = 5.dp),
+                                .padding(horizontal = if (compact) 4.dp else 6.dp, vertical = if (compact) 3.dp else 5.dp),
                         )
                     }
                 }
@@ -299,20 +302,33 @@ private fun MarkdownTable(
 }
 
 @Composable
-private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color) {
+private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color, compact: Boolean) {
     val lines = remember(text) { parseLines(text) }
+    val base = if (compact) {
+        MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp)
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
     Column(Modifier.fillMaxWidth()) {
         lines.forEach { line ->
             when (line) {
                 is Line.Heading -> Text(
                     inline(line.text, codeColor, linkColor),
-                    style = when (line.level) {
-                        1 -> MaterialTheme.typography.titleLarge
-                        2 -> MaterialTheme.typography.titleMedium
-                        else -> MaterialTheme.typography.titleSmall
+                    style = if (compact) {
+                        when (line.level) {
+                            1 -> MaterialTheme.typography.titleSmall
+                            2 -> MaterialTheme.typography.labelLarge
+                            else -> MaterialTheme.typography.labelMedium
+                        }
+                    } else {
+                        when (line.level) {
+                            1 -> MaterialTheme.typography.titleLarge
+                            2 -> MaterialTheme.typography.titleMedium
+                            else -> MaterialTheme.typography.titleSmall
+                        }
                     },
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                    modifier = Modifier.padding(top = if (compact) 4.dp else 6.dp, bottom = 2.dp),
                 )
                 is Line.Quote -> Row(
                     Modifier
@@ -328,7 +344,7 @@ private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color) {
                     )
                     Text(
                         inline(line.text, codeColor, linkColor),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = base,
                         fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 8.dp),
@@ -340,23 +356,23 @@ private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color) {
                 ) {
                     Text(
                         if (line.marker in listOf("-", "*", "+")) "•" else line.marker,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = base,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(18.dp),
+                        modifier = Modifier.width(if (compact) 16.dp else 18.dp),
                     )
                     Text(
                         inline(line.text, codeColor, linkColor),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = base,
                         modifier = Modifier.weight(1f),
                     )
                 }
-                is Line.Table -> MarkdownTable(line, codeColor, linkColor)
-                Line.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp))
-                Line.Gap -> Spacer(Modifier.height(6.dp))
+                is Line.Table -> MarkdownTable(line, codeColor, linkColor, compact)
+                Line.Rule -> HorizontalDivider(Modifier.padding(vertical = if (compact) 4.dp else 6.dp))
+                Line.Gap -> Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
                 is Line.Para -> SelectionContainer {
                     Text(
                         inline(line.text, codeColor, linkColor),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = base,
                         modifier = Modifier.padding(vertical = 1.dp),
                     )
                 }
@@ -366,7 +382,7 @@ private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color) {
 }
 
 @Composable
-fun MarkdownText(text: String, modifier: Modifier = Modifier) {
+fun MarkdownText(text: String, modifier: Modifier = Modifier, compact: Boolean = false) {
     val blocks = remember(text) { splitBlocks(text) }
     val codeColor = MaterialTheme.colorScheme.primary
     val linkColor = MaterialTheme.colorScheme.secondary
@@ -396,7 +412,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                         Text(
                             block.code,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
+                            fontSize = if (compact) 10.5.sp else 11.sp,
                             color = mono,
                             modifier = Modifier
                                 .horizontalScroll(rememberScrollState())
@@ -404,7 +420,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                         )
                     }
                 }
-                is Block.Text -> MarkdownLines(block.text, codeColor, linkColor)
+                is Block.Text -> MarkdownLines(block.text, codeColor, linkColor, compact)
             }
         }
     }

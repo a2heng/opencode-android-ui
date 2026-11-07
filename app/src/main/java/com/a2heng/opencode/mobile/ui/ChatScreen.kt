@@ -237,6 +237,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     val pendingPermissions = model.permissions.filter { it.sessionID == session.id }
+    // 只给「当前正在跑的这一轮」的工具做出现动画；往上翻历史时不要再一个个展开
+    val animateToolsFor = if (screenReady && model.sending) {
+        model.messages.lastOrNull { it.isAssistant }?.id
+    } else {
+        null
+    }
     val pendingForms = model.forms.filter { it.sessionID == session.id }
     // 通过 API 新建的会话在服务端没有 model 字段，从最后一条 assistant 消息里补
     val effectiveModel = session.model ?: model.messages.lastOrNull { it.model != null }?.model
@@ -495,7 +501,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                         msg = msg,
                                         detail = model.detailLevel,
                                         baseDir = session.directory,
-                                        animateAppear = screenReady,
+                                        animateAppear = animateToolsFor == msg.id,
                                         onLongPressUser = { revertTarget = it },
                                         onOpenTool = { detailTool = it },
                                     )
@@ -1245,8 +1251,45 @@ private fun ClampedText(
 
 @Composable
 private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) {
-    if (text.isBlank() || detail == "compact") return
+    if (text.isBlank()) return
     var expanded by remember { mutableStateOf(false) }
+    if (detail == "compact") {
+        // 精简模式也给一行思考，点开看完整内容
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickableNoRipple { expanded = true }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.Psychology,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                "思考",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "${text.length} 字",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "展开",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    } else {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
         shape = RoundedCornerShape(10.dp),
@@ -1293,6 +1336,7 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
             )
         }
     }
+    }
     if (expanded) {
         AppDialog(
             onDismissRequest = { expanded = false },
@@ -1306,10 +1350,12 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                     MarkdownText(
                         text,
                         Modifier.fillMaxWidth(),
+                        compact = true,
                     )
                 }
             },
             confirmButton = { TextButton(onClick = { expanded = false }) { Text("关闭") } },
+            contentPadding = 14.dp,
         )
     }
 }
@@ -1654,7 +1700,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
     LaunchedEffect(Unit) { shown = true }
     LaunchedEffect(closing) {
         if (closing) {
-            kotlinx.coroutines.delay(110)
+            kotlinx.coroutines.delay(90)
             onDismiss()
         }
     }
@@ -1664,27 +1710,19 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
     ) {
         androidx.compose.animation.AnimatedVisibility(
             visible = shown && !closing,
-            enter = androidx.compose.animation.fadeIn(tween(90)) +
-                androidx.compose.animation.scaleIn(
-                    initialScale = 0.96f,
-                    animationSpec = tween(110, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                ),
-            exit = androidx.compose.animation.fadeOut(tween(80)) +
-                androidx.compose.animation.scaleOut(
-                    targetScale = 0.98f,
-                    animationSpec = tween(90, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                ),
+            enter = androidx.compose.animation.fadeIn(tween(80)),
+            exit = androidx.compose.animation.fadeOut(tween(70)),
         ) {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(20.dp),
                 tonalElevation = 6.dp,
                 modifier = Modifier
-                    .padding(horizontal = 20.dp, vertical = 28.dp)
+                    .padding(horizontal = 10.dp, vertical = 16.dp)
                     .fillMaxWidth()
                     .widthIn(max = 560.dp),
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             toolIcon(part.name),

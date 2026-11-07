@@ -37,6 +37,7 @@ fun AppDialog(
     text: @Composable () -> Unit,
     confirmButton: @Composable () -> Unit,
     dismissButton: (@Composable () -> Unit)? = null,
+    contentPadding: androidx.compose.ui.unit.Dp = 24.dp,
 ) {
     var backProgress by remember { mutableFloatStateOf(0f) }
     val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
@@ -71,7 +72,7 @@ fun AppDialog(
                     alpha = 1f - 0.35f * backProgress
                 },
         ) {
-            Column(Modifier.padding(24.dp)) {
+            Column(Modifier.padding(contentPadding)) {
                 title()
                 Column(
                     Modifier

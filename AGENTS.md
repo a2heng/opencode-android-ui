@@ -5,7 +5,7 @@
 ## 1. 项目定位
 
 - 仓库：`a2heng/opencode-mobile`（公开 · MIT），本机 `~/opencode-mobile`。
-- 原生 Kotlin + Jetpack Compose（`compileSdk 34` / `minSdk 26` / AGP 8.7.3 / Gradle 8.9 / Kotlin 2.0.21），不是 WebView 壳。
+- 原生 Kotlin + Jetpack Compose（`compileSdk 37` / `minSdk 26` / AGP 9.1.1 / Gradle 9.3.1 / Kotlin 2.4.21 / Compose 1.11.4），不是 WebView 壳。AGP 9 内置 Kotlin（**不要再加 `org.jetbrains.kotlin.android`**），`resValues = true` 要显式打开。
 - 直连局域网 opencode 服务 `http://<电脑>:42000`；Basic 用户名固定 `opencode`，密码 = 服务端 `OPENCODE_PASSWORD`。
 - 正式包 `com.a2heng.opencode.mobile`，开发包 `com.a2heng.opencode.mobile.debug`（名称 `OpenCode Dev`，图标带 DEV 角标，可与正式版共存）。
 
@@ -224,3 +224,27 @@ app/src/main/java/com/a2heng/opencode/mobile/
 - 不修改 `~/.local/share/opencode` 的数据；App 只读服务端 API。
 - 不在真机上随手点、截屏；真机验证让用户自己看（模拟器可以自己截图看）。
 - 每次改动同步更新 `docs/API-NOTES.md` 和本文件的「用户偏好」部分，保持文档是活的。
+
+### 4.11 终端（PTY）
+
+- 渲染用 **`org.connectbot:termlib:0.3.14`**（Apache-2.0，libvterm + Compose，**不要换 Termux：GPL**）。
+  - `TerminalEmulatorFactory.create(...)`；PTY 字节直接 `writeInput(bytes)`，不要再自己 `stripAnsi`。
+  - 用户键盘输入走 `onKeyboardInput` 回调 → WebSocket。
+- **PTY resize 必须 `PUT /api/pty/{id}`**（`{size:{rows,cols}}`）；用 `PATCH` 会 404、异常被吞，表现就是「右边一片空白但换行」。
+- 尺寸来自视图：`onResize` 回调把 rows/cols 发给服务端；不要写死 `40x100`。
+- Activity `windowSoftInputMode=adjustNothing`：键盘不改变窗口；终端尺寸固定。
+- 占位：**固定比例**（竖屏底部 42% 高、横屏右侧 34% 宽），不要跟着键盘高度变化；按钮固定在占位区边缘。
+- 按钮：竖屏在留白区上沿（分隔线下面）、横屏在右侧留白区顶部；两行：
+  - 左下：Shift 在上，Ctrl/Alt 在下；开=主题色边框+主题色文字（加粗），关=普通灰。
+  - 中间：Tab / ^C / Esc，回车 / A− / A+。
+  - 右侧：Home/End，隔一个按键宽度后是独立十字方向键（↑ 上，← ↓ → 下）。
+  - 回车：点=CR，长按=LF（震动）；Ctrl/Shift/Alt 影响方向键（xterm modifier）和 Shift+Tab。
+- 字体：打包 `assets/fonts/SarasaFixedSC-Regular.ttf`（OFL，GB2312 子集，2.1MB，拉丁 0.5em/中文 1em）；加载失败回退 `DroidSansMono.ttf`。
+- 字号 5–26sp，存 SharedPreferences（`pty_font_size`）；换字号用 `key(fontSize)` 重建视图（emulator 屏幕缓冲不丢）。
+
+### 4.12 文件
+
+- 预设目录用**胶囊**（无图标、自动换行、最多约 5 行后滚动）：`~`、`/tmp/opencode`、当前会话目录、最近项目。
+- `/api/fs/list`、`/api/fs/read` 都是 **location 作用域**：列目录用 `location[directory]=<绝对目录>`，读文件用 `location[directory]=<父目录>` + 文件名（不要用 `..`，会被 URL 规范化掉）。
+- 文本解码：严格 UTF-8 → GB18030 回退；前 8KB 有 NUL 当二进制；图片走 BitmapFactory；`.md` 用 MarkdownText。
+- 对话正文里的绝对路径可点开文件预览卡（`DetailOverlay` + `FilePreviewCard`）。

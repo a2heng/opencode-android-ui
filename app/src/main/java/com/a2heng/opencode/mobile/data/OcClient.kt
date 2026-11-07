@@ -73,6 +73,18 @@ class OcClient(rawBase: String, private val password: String) {
         }
     }
 
+    suspend fun put(path: String, body: JsonElement): JsonElement? {
+        val req = request(path)
+            .put(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        val resp = http.newCall(req).execute()
+        return resp.use { r ->
+            if (!r.isSuccessful) throw errorOf(r)
+            val text = r.body?.string().orEmpty()
+            if (text.isBlank()) null else json.parseToJsonElement(text)
+        }
+    }
+
     suspend fun patch(path: String, body: JsonElement): JsonElement? {
         val req = request(path)
             .patch(body.toString().toRequestBody("application/json".toMediaType()))
@@ -254,10 +266,14 @@ class OcClient(rawBase: String, private val password: String) {
 
     suspend fun shellOutput(id: String, directory: String? = null): String {
         val e = get("/api/shell/$id/output" + locationQuery(directory))
-        return when (e) {
-            is JsonPrimitive -> e.content
-            is JsonObject -> e.str("output") ?: e.str("data") ?: e.toString()
-            else -> e.toString()
+        if (e !is JsonObject) return if (e is JsonPrimitive) e.content else e.toString()
+        // 真实结构：{ location, data: { output, cursor, size, truncated } }
+        // 兼容 data 直接是字符串 / 数组的旧版本，否则会把整个 JSON 当成输出显示。
+        return when (val data = e["data"]) {
+            is JsonPrimitive -> data.content
+            is JsonObject -> data.str("output") ?: ""
+            is JsonArray -> data.mapNotNull { (it as? JsonObject)?.str("output") }.joinToString("")
+            else -> e.str("output") ?: ""
         }
     }
 
@@ -396,34 +412,38 @@ class OcClient(rawBase: String, private val password: String) {
         )
     }
 
-    suspend fun listDir(path: String?): Pair<String, List<FsEntry>> {
-        val q = if (path.isNullOrBlank()) "" else "?path=" + urlEncode(path)
+    /**
+     * 列目录。传绝对路径时把它当成 location（`location[directory]`），
+     * 这样 `/tmp/opencode` 这种项目外的目录也能列，而且返回的 path 是相对该目录的。
+     */
+    suspend fun listDir(dir: String?): Pair<String, List<FsEntry>> {
+        val q = if (dir.isNullOrBlank()) "" else "?location%5Bdirectory%5D=" + urlEncode(dir)
         val o = get("/api/fs/list$q") as? JsonObject ?: JsonObject(emptyMap())
-        val dir = o.obj("location")?.str("directory") ?: ""
+        val location = o.obj("location")?.str("directory") ?: dir.orEmpty()
         val entries = o.arr("data").mapNotNull { e ->
             val ob = e as? JsonObject ?: return@mapNotNull null
             FsEntry(ob.str("path") ?: return@mapNotNull null, ob.str("type") ?: "file")
         }
-        return dir to entries
+        return location to entries
     }
 
-    suspend fun readFile(path: String): String {
-        val req = request("/api/fs/read/" + path.split('/').joinToString("/") { urlEncode(it) }).get().build()
+    suspend fun readFile(path: String): String = decodeText(readFileRaw(path).bytes)
+
+    /**
+     * 原始字节 + MIME：文本自己按 UTF-8/GB18030 解码，图片直接交给 BitmapFactory。
+     * `/api/fs/read` 是 location 作用域的：把文件父目录当 location、文件名当相对路径，
+     * 否则项目外的文件会 404（也避免 URL 里的 `..` 被规范化掉）。
+     */
+    suspend fun readFileRaw(path: String): FsFile {
+        val dir = path.substringBeforeLast('/', "")
+        val name = path.substringAfterLast('/')
+        val q = if (dir.isBlank()) "" else "?location%5Bdirectory%5D=" + urlEncode(dir)
+        val req = request("/api/fs/read/" + urlEncode(name) + q).get().build()
         val resp = http.newCall(req).execute()
         return resp.use { r ->
             if (!r.isSuccessful) throw errorOf(r)
-            val text = r.body?.string().orEmpty()
-            try {
-                val o = json.parseToJsonElement(text) as? JsonObject
-                val data = o?.get("data")
-                when (data) {
-                    is JsonPrimitive -> data.content
-                    is JsonObject -> data.str("content") ?: text
-                    else -> text
-                }
-            } catch (_: Exception) {
-                text
-            }
+            val mime = r.header("Content-Type")?.substringBefore(';')?.trim().orEmpty()
+            FsFile(mime, r.body?.bytes() ?: ByteArray(0))
         }
     }
 
@@ -451,7 +471,8 @@ class OcClient(rawBase: String, private val password: String) {
                 },
             )
         }
-        patch("/api/pty/$id", body)
+        // 这个接口只认 PUT；PATCH 会 404（之前 PTY 宽度一直没同步）
+        put("/api/pty/$id", body)
     }
 
     /** 申请 PTY WebSocket 票据（服务端强制要求 x-opencode-ticket: 1）。 */

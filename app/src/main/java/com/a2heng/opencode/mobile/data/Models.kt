@@ -373,6 +373,9 @@ data class FsEntry(val path: String, val type: String) {
     val isDir: Boolean get() = type == "directory"
 }
 
+/** `/api/fs/read` 返回的原始内容（服务端是流式字节 + MIME，不是 JSON）。 */
+data class FsFile(val mime: String, val bytes: ByteArray)
+
 data class Queued(val id: String, val text: String, val delivery: String = "queue")
 
 data class CommandInfo(val name: String, val description: String)
@@ -483,3 +486,34 @@ private val ANSI_OSC = Regex("\u001B\\][^\u0007]*\u0007")
 /** 终端输出里的 ANSI 转义序列在普通 Text 里会变成乱码，显示前清掉。 */
 fun stripAnsi(input: String): String =
     ANSI_CSI.replace(ANSI_OSC.replace(input, ""), "").replace("\r\n", "\n").replace('\r', '\n')
+
+/**
+ * 文本解码：先严格 UTF-8，失败再按国标 GB18030（兼容 GBK/GB2312），最后宽松 UTF-8 兜底。
+ * 服务端 `/api/fs/read` 给的是原始字节，所以这里能自己判断编码。
+ */
+fun decodeText(bytes: ByteArray): String {
+    val clean = if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) {
+        bytes.copyOfRange(3, bytes.size)
+    } else {
+        bytes
+    }
+    val strict = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+    return try {
+        strict.decode(java.nio.ByteBuffer.wrap(clean)).toString()
+    } catch (_: Exception) {
+        try {
+            String(clean, java.nio.charset.Charset.forName("GB18030"))
+        } catch (_: Exception) {
+            String(clean, Charsets.UTF_8)
+        }
+    }
+}
+
+/** 前 8KB 里出现 NUL 就当成二进制，不硬当文本渲染。 */
+fun looksBinary(bytes: ByteArray): Boolean {
+    val n = minOf(bytes.size, 8192)
+    for (i in 0 until n) if (bytes[i] == 0.toByte()) return true
+    return false
+}

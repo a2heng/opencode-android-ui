@@ -180,6 +180,19 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     var detailToolID by remember { mutableStateOf<String?>(null) }
     // 思考详情：live 表示点的是底部流式区，内容要继续跟着 model.liveReasoning 更新
     var reasoningView by remember { mutableStateOf<ReasoningView?>(null) }
+    var fileTarget by remember { mutableStateOf<String?>(null) }
+    // 文本里的路径 → 文件预览卡（相对路径按当前会话目录解析）
+    val openPath: (String) -> Unit = { raw ->
+        val abs = when {
+            raw.startsWith("~/") && model.homeDir.isNotBlank() ->
+                model.homeDir.trimEnd('/') + raw.removePrefix("~")
+            raw.startsWith("/") -> raw
+            else -> raw
+        }
+        fileTarget = abs
+        model.openFile(abs)
+    }
+
     var showCommands by remember { mutableStateOf(false) }
     var showFilePicker by remember { mutableStateOf(false) }
     var openMenu by remember { mutableStateOf(false) }
@@ -318,12 +331,16 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                             model.closeSession()
                             model.refreshSessions()
                         },
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(38.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
                     ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "返回",
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(19.dp),
                         )
                     }
                     Spacer(Modifier.width(8.dp))
@@ -337,9 +354,13 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                             overflow = TextOverflow.Ellipsis,
                         )
                         Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                             shape = RoundedCornerShape(50),
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                            ),
                             modifier = Modifier
                                 .padding(top = 1.dp)
                                 .clickableNoRipple {
@@ -347,26 +368,16 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                                     pickModel = true
                                 },
                         ) {
-                            Row(
-                                Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(
-                                    Modifier
-                                        .size(5.dp)
-                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
-                                )
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
-                                        ?.takeIf { it.isNotBlank() } ?: "选择模型",
-                                    fontSize = 10.sp,
-                                    lineHeight = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                            Text(
+                                effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
+                                    ?.takeIf { it.isNotBlank() } ?: "选择模型",
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                            )
                         }
                     }
                     Spacer(Modifier.width(6.dp))
@@ -375,7 +386,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                         model.loadMeta(session.directory)
                         pickAgent = true
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(3.dp))
                     InfoSquare(
                         "命中",
                         aggregateTokens?.let { rateLabel(it.hitRate) } ?: "—",
@@ -383,21 +394,25 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                             rateColor(it.hitRate, MaterialTheme.colorScheme.background.luminanceIsDark())
                         } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                     ) { model.openCache(session) }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(3.dp))
                     InfoSquare(
                         "上下文",
                         contextPct?.let { "${it.roundToInt()}%" } ?: "—",
                         valueColor = contextColor,
                     ) { model.openCache(session) }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(3.dp))
                     FilledTonalIconButton(
                         onClick = { openMenu = true },
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(38.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
                     ) {
                         Icon(
                             Icons.Rounded.UnfoldMore,
                             contentDescription = "打开的会话",
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(19.dp),
                         )
                     }
                 }
@@ -514,6 +529,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                                         model,
                                         model.detailLevel,
                                         onOpenReasoning = { reasoningView = ReasoningView(it, live = true) },
+                                        onOpenPath = openPath,
                                     )
                                 }
                             }
@@ -536,6 +552,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                                         onOpenReasoning = { reasoningView = ReasoningView(it, live = false) },
                                         onLongPressUser = { revertTarget = it },
                                         onOpenTool = { detailToolID = it.toolID },
+                                        onOpenPath = openPath,
                                     )
                                 }
                             }
@@ -799,6 +816,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                 TextButton(onClick = { confirmStop = false }) { Text("继续") }
             },
         )
+    }
+
+    fileTarget?.let { path ->
+        DetailOverlay(onDismiss = { fileTarget = null; model.closeFile() }) { close ->
+            FilePreviewCard(model, path, close)
+        }
     }
 
     // 详情卡每次重组都从最新消息里取，运行中的工具/思考在弹窗里也能继续更新
@@ -1220,7 +1243,7 @@ private fun InfoSquare(
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
-            .size(40.dp)
+            .size(width = 36.dp, height = 40.dp)
             .clickableNoRipple(onClick),
     ) {
         Column(
@@ -1230,14 +1253,14 @@ private fun InfoSquare(
         ) {
             Text(
                 label,
-                fontSize = 8.5.sp,
+                fontSize = 8.sp,
                 lineHeight = 9.sp,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.62f),
                 maxLines = 1,
             )
             Text(
                 value,
-                fontSize = 10.5.sp,
+                fontSize = 10.sp,
                 lineHeight = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = valueColor,
@@ -1274,6 +1297,7 @@ private fun MessageItem(
     onOpenReasoning: (String) -> Unit = {},
     onLongPressUser: (Msg) -> Unit = {},
     onOpenTool: (Part.Tool) -> Unit = {},
+    onOpenPath: ((String) -> Unit)? = null,
 ) {
     val haptics = LocalHapticFeedback.current
     if (msg.isUser) {
@@ -1309,10 +1333,10 @@ private fun MessageItem(
             when (part) {
                 is Part.Reasoning -> ReasoningBlock(part.text, detail, onOpenReasoning = onOpenReasoning)
                 is Part.Tool -> ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
-                is Part.Text -> AssistantText(part.text)
+                is Part.Text -> AssistantText(part.text, onOpenPath)
             }
         }
-        if (msg.parts.isEmpty() && msg.text.isNotBlank()) AssistantText(msg.text)
+        if (msg.parts.isEmpty() && msg.text.isNotBlank()) AssistantText(msg.text, onOpenPath)
         msg.error?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
@@ -1321,13 +1345,14 @@ private fun MessageItem(
 }
 
 @Composable
-private fun AssistantText(text: String) {
+private fun AssistantText(text: String, onOpenPath: ((String) -> Unit)? = null) {
     if (text.isBlank()) return
     MarkdownText(
         text,
         Modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp),
+        onOpenPath = onOpenPath,
     )
 }
 
@@ -2100,6 +2125,84 @@ private fun ToolDetailCard(part: Part.Tool, baseDir: String = "", onClose: () ->
             }
 }
 
+@Composable
+private fun FilePreviewCard(model: AppModel, path: String, onClose: () -> Unit) {
+    val (contentMin, contentMax) = rememberDialogContentHeight()
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 6.dp,
+        modifier = Modifier
+            .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 8.dp)
+            .fillMaxWidth()
+            .widthIn(max = 720.dp),
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DialogBackButton(onClick = onClose)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    path.substringAfterLast('/'),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                path.substringBeforeLast('/'),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Box(
+                Modifier
+                    .heightIn(min = contentMin, max = contentMax)
+                    .padding(vertical = 4.dp),
+            ) {
+                when {
+                    model.openFileLoading -> CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center).size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    model.openFileImage != null -> Image(
+                        bitmap = model.openFileImage!!.asImageBitmap(),
+                        contentDescription = path.substringAfterLast('/'),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    model.openFileBinary -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            model.openFileText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    model.openFileMarkdown -> Box(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    ) {
+                        MarkdownText(model.openFileText, compact = false)
+                    }
+                    else -> Box(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    ) {
+                        Text(
+                            model.openFileText.take(120_000),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun toolStatusLabel(part: Part.Tool): String = when {
     part.exitCode != null && part.exitCode != 0L -> "exit ${part.exitCode}"
     part.status == "completed" || part.status == "success" -> "完成"
@@ -2194,13 +2297,18 @@ private fun Footer(msg: Msg) {
 }
 
 @Composable
-private fun LiveBubble(model: AppModel, detail: String, onOpenReasoning: (String) -> Unit = {}) {
+private fun LiveBubble(
+    model: AppModel,
+    detail: String,
+    onOpenReasoning: (String) -> Unit = {},
+    onOpenPath: ((String) -> Unit)? = null,
+) {
     Column(Modifier.fillMaxWidth()) {
         if (model.liveReasoning.isNotBlank()) {
             ReasoningBlock(model.liveReasoning, detail, live = true, onOpenReasoning = onOpenReasoning)
         }
         if (model.liveText.isNotBlank()) {
-            AssistantText(model.liveText)
+            AssistantText(model.liveText, onOpenPath)
         } else if (model.sending) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)

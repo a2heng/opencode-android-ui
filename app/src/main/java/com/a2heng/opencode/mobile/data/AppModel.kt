@@ -1,7 +1,12 @@
 package com.a2heng.opencode.mobile.data
 
 import android.app.Application
+import android.os.Looper
 import android.widget.Toast
+import androidx.compose.ui.graphics.Color
+import org.connectbot.terminal.TerminalDimensions
+import org.connectbot.terminal.TerminalEmulator
+import org.connectbot.terminal.TerminalEmulatorFactory
 import com.a2heng.opencode.mobile.ConnectionService
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -319,6 +324,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var openFileLoading by mutableStateOf(false)
         private set
+    var openFileImage by mutableStateOf<android.graphics.Bitmap?>(null)
+        private set
+    var openFileMime by mutableStateOf("")
+        private set
+    var openFileBinary by mutableStateOf(false)
+        private set
+    var openFileMarkdown by mutableStateOf(false)
+        private set
 
     // ---- 终端 ---------------------------------------------------------------
     var ptys by mutableStateOf<List<PtyInfo>>(emptyList())
@@ -332,6 +345,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var ptyConnecting by mutableStateOf(false)
         private set
     var ptyError by mutableStateOf<String?>(null)
+        private set
+    var ptyEmulator by mutableStateOf<TerminalEmulator?>(null)
+        private set
+    // 终端字号（记住缩放）
+    var ptyFontSize by mutableStateOf(prefs.getFloat("pty_font_size", 11f))
         private set
     private var ptySocket: WebSocket? = null
     private var ptyDecoding = false
@@ -1399,12 +1417,41 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun openFile(path: String) {
         val c = client ?: return
         openFile = path
-        openFileText = "加载中…"
+        openFileText = ""
+        openFileImage = null
+        openFileBinary = false
+        openFileMarkdown = false
+        openFileMime = ""
         openFileLoading = true
         viewModelScope.launch {
             try {
-                val text = withContext(Dispatchers.IO) { c.readFile(path) }
-                openFileText = if (text.length > 300_000) text.take(300_000) + "\n\n…（文件过大，已截断）" else text
+                val file = withContext(Dispatchers.IO) { c.readFileRaw(path) }
+                openFileMime = file.mime
+                when {
+                    file.mime.startsWith("image/") -> {
+                        val bmp = withContext(Dispatchers.Default) { decodeBitmapCapped(file.bytes, 2048) }
+                        if (bmp != null) {
+                            openFileImage = bmp
+                        } else {
+                            openFileBinary = true
+                            openFileText = "图片无法解码（${file.bytes.size / 1024} KB）"
+                        }
+                    }
+                    looksBinary(file.bytes) -> {
+                        openFileBinary = true
+                        openFileText = "二进制文件（${file.bytes.size / 1024} KB），暂不支持预览"
+                    }
+                    else -> {
+                        val text = withContext(Dispatchers.Default) { decodeText(file.bytes) }
+                        openFileMarkdown = path.substringAfterLast('.', "").lowercase() in
+                            setOf("md", "markdown")
+                        openFileText = if (text.length > 400_000) {
+                            text.take(400_000) + "\n\n…（文件过大，已截断）"
+                        } else {
+                            text
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 openFileText = "读取失败：" + (e.message ?: "")
             } finally {
@@ -1416,6 +1463,20 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun closeFile() {
         openFile = null
         openFileText = ""
+        openFileImage = null
+        openFileBinary = false
+        openFileMarkdown = false
+        openFileMime = ""
+    }
+
+    /** 按 max 边长采样解码，避免 4K 图片直接把内存打爆。 */
+    private fun decodeBitmapCapped(bytes: ByteArray, max: Int): android.graphics.Bitmap? {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > max || bounds.outHeight / sample > max) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
     }
 
     // =========================================================================
@@ -1456,6 +1517,25 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         ptyOutput = ""
         ptyError = null
         ptyConnecting = true
+        // termlib（libvterm）负责真正的 VT100/xterm 解析：watch / vim / htop 才能正常显示
+        val emu = TerminalEmulatorFactory.create(
+            looper = Looper.getMainLooper(),
+            initialRows = 40,
+            initialCols = 100,
+            defaultForeground = Color(0xFFE6EDF3),
+            defaultBackground = Color(0xFF0E1116),
+            onKeyboardInput = { bytes: ByteArray -> ptySocket?.send(ByteString.of(*bytes)) },
+            onResize = { dims: TerminalDimensions ->
+                android.util.Log.d("PtySize", "view rows=${dims.rows} cols=${dims.columns} w=${dims.widthPixels} h=${dims.heightPixels}")
+                viewModelScope.launch(Dispatchers.IO) {
+                    runCatching {
+                        c.ptyResize(pty.id, dims.rows, dims.columns)
+                        android.util.Log.d("PtySize", "sent resize rows=${dims.rows} cols=${dims.columns}")
+                    }
+                }
+            },
+        )
+        ptyEmulator = emu
         viewModelScope.launch {
             try {
                 val ticket = withContext(Dispatchers.IO) { c.ptyTicket(pty.id) }
@@ -1468,23 +1548,17 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
                         ptyConnected = true
                         ptyConnecting = false
-                        // 让远端 bash 的换行/宽度正常
-                        viewModelScope.launch(Dispatchers.IO) {
-                            try {
-                                c.ptyResize(pty.id, 40, 100)
-                            } catch (_: Exception) {
-                            }
-                        }
+                        // 尺寸交给 termlib：视图布局后通过 onResize 回调同步给服务端
                     }
 
                     override fun onMessage(webSocket: WebSocket, text: String) {
-                        ptyOutput = (ptyOutput + text).takeLast(160_000)
+                        ptyEmulator?.writeInput(text.toByteArray())
                     }
 
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                         // 控制帧：0x00 + JSON {cursor}
                         if (bytes.size > 1 && bytes[0] == 0.toByte()) return
-                        ptyOutput = (ptyOutput + bytes.utf8()).takeLast(160_000)
+                        ptyEmulator?.writeInput(bytes.toByteArray())
                     }
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -1510,12 +1584,20 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         ptySocket?.send(text)
     }
 
+    fun updatePtyFontSize(size: Float) {
+        val next = size.coerceIn(5f, 26f)
+        ptyFontSize = next
+        prefs.edit().putFloat("pty_font_size", next).apply()
+    }
+
     fun detachPty() {
         try {
             ptySocket?.close(1000, "leave")
         } catch (_: Exception) {
         }
         ptySocket = null
+        ptyEmulator?.close()
+        ptyEmulator = null
         ptyActive = null
         ptyConnected = false
         ptyConnecting = false

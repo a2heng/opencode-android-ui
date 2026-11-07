@@ -1,6 +1,7 @@
 package com.a2heng.opencode.mobile.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -20,10 +21,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -302,7 +309,13 @@ private fun MarkdownTable(
 }
 
 @Composable
-private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color, compact: Boolean) {
+private fun MarkdownLines(
+    text: String,
+    codeColor: Color,
+    linkColor: Color,
+    compact: Boolean,
+    onOpenPath: ((String) -> Unit)?,
+) {
     val lines = remember(text) { parseLines(text) }
     val base = if (compact) {
         MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp)
@@ -342,12 +355,13 @@ private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color, comp
                             .fillMaxHeight()
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f), RoundedCornerShape(2.dp)),
                     )
-                    Text(
+                    LinkableText(
                         inline(line.text, codeColor, linkColor),
                         style = base,
                         fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 8.dp),
+                        onOpenPath = onOpenPath,
                     )
                 }
                 is Line.ListItem -> Row(
@@ -360,20 +374,22 @@ private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color, comp
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.width(if (compact) 16.dp else 18.dp),
                     )
-                    Text(
+                    LinkableText(
                         inline(line.text, codeColor, linkColor),
                         style = base,
                         modifier = Modifier.weight(1f),
+                        onOpenPath = onOpenPath,
                     )
                 }
                 is Line.Table -> MarkdownTable(line, codeColor, linkColor, compact)
                 Line.Rule -> HorizontalDivider(Modifier.padding(vertical = if (compact) 4.dp else 6.dp))
                 Line.Gap -> Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
                 is Line.Para -> SelectionContainer {
-                    Text(
+                    LinkableText(
                         inline(line.text, codeColor, linkColor),
                         style = base,
                         modifier = Modifier.padding(vertical = 1.dp),
+                        onOpenPath = onOpenPath,
                     )
                 }
             }
@@ -382,7 +398,12 @@ private fun MarkdownLines(text: String, codeColor: Color, linkColor: Color, comp
 }
 
 @Composable
-fun MarkdownText(text: String, modifier: Modifier = Modifier, compact: Boolean = false) {
+fun MarkdownText(
+    text: String,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    onOpenPath: ((String) -> Unit)? = null,
+) {
     val blocks = remember(text) { splitBlocks(text) }
     val codeColor = MaterialTheme.colorScheme.primary
     val linkColor = MaterialTheme.colorScheme.secondary
@@ -420,8 +441,56 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier, compact: Boolean =
                         )
                     }
                 }
-                is Block.Text -> MarkdownLines(block.text, codeColor, linkColor, compact)
+                is Block.Text -> MarkdownLines(block.text, codeColor, linkColor, compact, onOpenPath)
             }
         }
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// 文本里的路径：点一下就打开文件卡片（绝对路径 / ~ 开头，至少两段）
+// ---------------------------------------------------------------------------
+
+private val PATH_RE = Regex("""(?:~|/)[\w.@%+\-]+(?:/[\w.@%+\-]+)+""")
+
+/** 返回 offset 落在哪个路径上（去掉句尾的标点）。 */
+fun pathAt(text: String, offset: Int): String? {
+    for (m in PATH_RE.findAll(text)) {
+        if (offset in m.range) {
+            return m.value.trimEnd('.', ',', ';', ':', ')', ']', ' ', '，', '。', '：')
+        }
+    }
+    return null
+}
+
+@Composable
+private fun LinkableText(
+    annotated: AnnotatedString,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontStyle: FontStyle? = null,
+    onOpenPath: ((String) -> Unit)? = null,
+) {
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val tapModifier = if (onOpenPath == null) {
+        modifier
+    } else {
+        modifier.pointerInput(annotated, onOpenPath) {
+            detectTapGestures { pos ->
+                val lr = layout ?: return@detectTapGestures
+                val offset = lr.getOffsetForPosition(pos)
+                pathAt(annotated.text, offset)?.let(onOpenPath)
+            }
+        }
+    }
+    Text(
+        annotated,
+        style = style,
+        modifier = tapModifier,
+        color = color,
+        fontStyle = fontStyle,
+        onTextLayout = { layout = it },
+    )
 }

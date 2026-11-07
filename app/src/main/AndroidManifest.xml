@@ -23,7 +23,7 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
-            android:windowSoftInputMode="adjustResize"
+            android:windowSoftInputMode="adjustNothing"
             android:theme="@style/Theme.OpenCodeMobile.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

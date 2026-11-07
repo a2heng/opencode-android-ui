@@ -1,6 +1,8 @@
 package com.a2heng.opencode.mobile.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,9 +12,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -22,16 +29,22 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderSpecial
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -94,8 +107,63 @@ fun FilesScreen(model: AppModel, wide: Boolean = false) {
 @Composable
 private fun FsListPane(model: AppModel) {
     Column(Modifier.fillMaxSize()) {
+        // 预设文件夹胶囊：~、/tmp/opencode、当前会话目录、最近项目（自动换行，最多约 5 行后滚动）
+        val presets = remember(model.homeDir, model.current?.id, model.sessions, model.fsDir) {
+            buildList {
+                if (model.homeDir.isNotBlank()) add("~" to model.homeDir)
+                add("/tmp/opencode" to "/tmp/opencode")
+                model.current?.directory?.takeIf { it.isNotBlank() }?.let { add("当前会话" to it) }
+                model.sessions.forEach { s ->
+                    val dir = s.directory
+                    if (dir.isNotBlank() && none { it.second == dir }) {
+                        add(dir.trimEnd('/').substringAfterLast('/').ifBlank { dir } to dir)
+                    }
+                }
+            }.take(24)
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 168.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        ) {
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                presets.forEach { (label, dir) ->
+                    val selected = model.fsDir.trimEnd('/') == dir.trimEnd('/')
+                    Surface(
+                        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(
+                            1.dp,
+                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                        ),
+                        modifier = Modifier.clickableNoRipple {
+                            model.closeFile()
+                            model.loadDir(dir)
+                        },
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(
@@ -209,15 +277,42 @@ private fun FileViewer(model: AppModel, path: String) {
         Box(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            Text(
-                model.openFileText.take(120_000),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            when {
+                model.openFileLoading -> CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center).size(22.dp),
+                    strokeWidth = 2.dp,
+                )
+                model.openFileImage != null -> Image(
+                    bitmap = model.openFileImage!!.asImageBitmap(),
+                    contentDescription = path.substringAfterLast('/'),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                model.openFileBinary -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        model.openFileText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                model.openFileMarkdown -> Box(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                ) {
+                    MarkdownText(model.openFileText, Modifier.fillMaxWidth(), compact = false)
+                }
+                else -> Box(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        model.openFileText.take(120_000),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
         }
     }
 }

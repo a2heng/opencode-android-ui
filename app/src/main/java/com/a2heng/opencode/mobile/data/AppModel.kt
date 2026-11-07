@@ -1,6 +1,7 @@
 package com.a2heng.opencode.mobile.data
 
 import android.app.Application
+import android.widget.Toast
 import com.a2heng.opencode.mobile.ConnectionService
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -100,12 +101,12 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var shells by mutableStateOf<List<ShellInfo>>(emptyList())
         private set
 
-    fun refreshShells() {
+    fun refreshShells(directory: String? = current?.directory) {
         val c = client ?: return
         viewModelScope.launch {
             try {
                 // 只保留正在跑的；跑完的在服务端队列里自然消失，不需要本地留档
-                shells = withContext(Dispatchers.IO) { c.shells() }
+                shells = withContext(Dispatchers.IO) { c.shells(directory) }
                     .filter { it.status.isEmpty() || it.status == "running" }
             } catch (_: Exception) {
             }
@@ -115,7 +116,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     suspend fun loadShellOutput(id: String): String {
         val c = client ?: return ""
         return withContext(Dispatchers.IO) {
-            runCatching { c.shellOutput(id) }.getOrDefault("")
+            runCatching { c.shellOutput(id, current?.directory) }.getOrDefault("")
         }
     }
 
@@ -123,7 +124,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { c.stopShell(id) }
+                withContext(Dispatchers.IO) { c.stopShell(id, current?.directory) }
                 refreshShells()
             } catch (e: Exception) {
                 lastError = e.message
@@ -1089,8 +1090,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 scheduleReload(immediate = true)
             }
             "session.message.content.updated", "session.message" -> scheduleReload()
-            "session.compaction.started" -> statusLine = "正在压缩上下文…"
-            "session.compaction.ended" -> statusLine = ""
+            "session.compaction.started" -> {
+                statusLine = "正在压缩上下文…"
+                sending = true
+            }
+            "session.compaction.ended" -> {
+                statusLine = ""
+                if (!isActive(sid)) sending = false
+                scheduleReload(immediate = true)
+            }
             "session.usage.recorded", "session.usage.updated" -> scheduleReload()
             else -> {
                 if (type.startsWith("session.tool.")) scheduleReload()
@@ -1213,6 +1221,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun compactSession() {
         val c = client ?: return
         val s = current ?: return
+        Toast.makeText(getApplication(), "正在压缩上下文…", Toast.LENGTH_SHORT).show()
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { c.compact(s.id) }

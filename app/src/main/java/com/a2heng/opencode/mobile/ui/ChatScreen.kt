@@ -171,6 +171,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var pickAgent by remember { mutableStateOf(false) }
     var revertTarget by remember { mutableStateOf<Msg?>(null) }
     var detailTool by remember { mutableStateOf<Part.Tool?>(null) }
+    var reasoningDetail by remember { mutableStateOf<String?>(null) }
     var showCommands by remember { mutableStateOf(false) }
     var showFilePicker by remember { mutableStateOf(false) }
     var openMenu by remember { mutableStateOf(false) }
@@ -410,7 +411,9 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         // 用「服务端命令 + 客户端内建命令」合并后的列表判断：
                         // compact 这类命令不在 /api/command 里，只看 model.commands 会被当成普通文本发出去。
                         val cmd = allCommands(model).firstOrNull {
-                            text == "/" + it.name || text.startsWith("/" + it.name + " ")
+                            text == "/" + it.name ||
+                                text.startsWith("/" + it.name + " ") ||
+                                (text == it.name && it.name in setOf("compact", "interrupt", "model", "agent", "reload"))
                         }
                         if (cmd != null) {
                             when (cmd.name) {
@@ -497,7 +500,11 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         ) {
                             if (model.liveReasoning.isNotBlank() || model.liveText.isNotBlank() || model.sending) {
                                 item(key = "live") {
-                                    LiveBubble(model, model.detailLevel)
+                                    LiveBubble(
+                                        model,
+                                        model.detailLevel,
+                                        onOpenReasoning = { reasoningDetail = it },
+                                    )
                                 }
                             }
                             items(model.messages.asReversed(), key = { it.id }) { msg ->
@@ -515,6 +522,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                         detail = model.detailLevel,
                                         baseDir = session.directory,
                                         onBackground = { model.backgroundCurrent() },
+                                        onOpenReasoning = { reasoningDetail = it },
                                         onLongPressUser = { revertTarget = it },
                                         onOpenTool = { detailTool = it },
                                     )
@@ -786,6 +794,10 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         ToolDetailDialog(tool, session.directory) { detailTool = null }
     }
 
+    reasoningDetail?.let { text ->
+        ReasoningDetailDialog(text) { reasoningDetail = null }
+    }
+
     if (showFilePicker) {
         FileMentionDialog(
             model = model,
@@ -1047,28 +1059,33 @@ private fun ChatComposer(
                 Spacer(Modifier.width(6.dp))
                 val hasContent = value.isNotBlank() || attachments.isNotEmpty()
                 val stopMode = !hasContent && busy
-                if (hasContent || stopMode) {
-                    FloatingActionButton(
-                        onClick = { if (hasContent) onSend() else onStop() },
-                        modifier = Modifier.size(42.dp),
-                        containerColor = if (hasContent) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
-                        contentColor = if (hasContent) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onError
-                        },
-                        shape = CircleShape,
-                    ) {
-                        Icon(
-                            if (hasContent) Icons.Rounded.ArrowUpward else Icons.Rounded.Stop,
-                            contentDescription = if (hasContent) "发送" else "停止",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
+                FloatingActionButton(
+                    onClick = {
+                        when {
+                            hasContent -> onSend()
+                            stopMode -> onStop()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .alpha(if (hasContent || stopMode) 1f else 0.45f),
+                    containerColor = when {
+                        hasContent -> MaterialTheme.colorScheme.primary
+                        stopMode -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = when {
+                        hasContent -> MaterialTheme.colorScheme.onPrimary
+                        stopMode -> MaterialTheme.colorScheme.onError
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    shape = CircleShape,
+                ) {
+                    Icon(
+                        if (stopMode) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
+                        contentDescription = if (stopMode) "停止" else "发送",
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }
@@ -1154,6 +1171,7 @@ private fun MessageItem(
     detail: String,
     baseDir: String = "",
     onBackground: () -> Unit = {},
+    onOpenReasoning: (String) -> Unit = {},
     onLongPressUser: (Msg) -> Unit = {},
     onOpenTool: (Part.Tool) -> Unit = {},
 ) {
@@ -1189,7 +1207,7 @@ private fun MessageItem(
     Column(Modifier.fillMaxWidth()) {
         msg.parts.forEach { part ->
             when (part) {
-                is Part.Reasoning -> ReasoningBlock(part.text, detail)
+                is Part.Reasoning -> ReasoningBlock(part.text, detail, onOpenReasoning = onOpenReasoning)
                 is Part.Tool -> ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
                 is Part.Text -> AssistantText(part.text)
             }
@@ -1209,8 +1227,7 @@ private fun AssistantText(text: String) {
         text,
         Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .animateContentSize(tween(durationMillis = 120)),
+            .padding(vertical = 2.dp),
     )
 }
 
@@ -1290,16 +1307,19 @@ private fun ClampedText(
 }
 
 @Composable
-private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) {
+private fun ReasoningBlock(
+    text: String,
+    detail: String,
+    live: Boolean = false,
+    onOpenReasoning: (String) -> Unit = {},
+) {
     if (text.isBlank()) return
-    var expanded by remember { mutableStateOf(false) }
-    val (contentMin, contentMax) = rememberDialogContentHeight()
     if (detail == "compact") {
         // 精简模式也给一行思考，点开看完整内容
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickableNoRipple { expanded = true }
+                .clickableNoRipple { onOpenReasoning(text) }
                 .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1337,8 +1357,7 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 2.dp)
-            .clickableNoRipple { expanded = true }
-            .animateContentSize(tween(durationMillis = 120)),
+            .clickableNoRipple { onOpenReasoning(text) },
     ) {
         Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1382,7 +1401,7 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                     ClampedText(
                         text,
                         maxLines = 16,
-                        onExpand = { expanded = true },
+                        onExpand = { onOpenReasoning(text) },
                         maskColor = MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1391,37 +1410,40 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
         }
     }
     }
-    if (expanded) {
-        AppDialog(
-            onDismissRequest = { expanded = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    DialogBackButton(onClick = { expanded = false })
-                    Spacer(Modifier.width(4.dp))
-                    Text("思考过程 · ${text.length} 字")
-                }
-            },
-            text = {
-                Box(
-                    Modifier
-                        .heightIn(min = contentMin, max = contentMax)
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 5.dp),
-                ) {
-                    MarkdownText(
-                        text,
-                        Modifier.fillMaxWidth(),
-                        compact = true,
-                    )
-                }
-            },
-            contentPadding = 10.dp,
-            outerHorizontalPadding = 8.dp,
-            outerTopPadding = 16.dp,
-            outerBottomPadding = 8.dp,
-            maxContentHeight = contentMax,
-        )
-    }
+}
+
+@Composable
+private fun ReasoningDetailDialog(text: String, onDismiss: () -> Unit) {
+    val (contentMin, contentMax) = rememberDialogContentHeight()
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DialogBackButton(onClick = onDismiss)
+                Spacer(Modifier.width(4.dp))
+                Text("思考过程 · ${text.length} 字")
+            }
+        },
+        text = {
+            Box(
+                Modifier
+                    .heightIn(min = contentMin, max = contentMax)
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 5.dp),
+            ) {
+                MarkdownText(
+                    text,
+                    Modifier.fillMaxWidth(),
+                    compact = true,
+                )
+            }
+        },
+        contentPadding = 10.dp,
+        outerHorizontalPadding = 8.dp,
+        outerTopPadding = 16.dp,
+        outerBottomPadding = 8.dp,
+        maxContentHeight = contentMax,
+    )
 }
 
 @Composable
@@ -1591,8 +1613,7 @@ private fun ToolBlock(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 2.dp)
-            .clickableNoRipple { onOpen(part) }
-            .animateContentSize(tween(durationMillis = 120)),
+            .clickableNoRipple { onOpen(part) },
     ) {
         Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2086,14 +2107,10 @@ private fun Footer(msg: Msg) {
 }
 
 @Composable
-private fun LiveBubble(model: AppModel, detail: String) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .animateContentSize(tween(durationMillis = 180)),
-    ) {
+private fun LiveBubble(model: AppModel, detail: String, onOpenReasoning: (String) -> Unit = {}) {
+    Column(Modifier.fillMaxWidth()) {
         if (model.liveReasoning.isNotBlank()) {
-            ReasoningBlock(model.liveReasoning, detail, live = true)
+            ReasoningBlock(model.liveReasoning, detail, live = true, onOpenReasoning = onOpenReasoning)
         }
         if (model.liveText.isNotBlank()) {
             AssistantText(model.liveText)

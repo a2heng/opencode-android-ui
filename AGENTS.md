@@ -67,10 +67,8 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 
 - 左右按钮不要太大（当前 40dp 圆形「+」、42dp 发送/停止），否则输入框太窄、不够紧凑；左右边距 6dp。
 - 输入框**多行**（`singleLine = false`，`maxLines = 5`）：换行时能显示多行、光标可在行间移动，不要只显示第一行。
-- 右下角按钮：
-  - 有文字/图片 → 发送（主题色，向上箭头）。
-  - 空输入 + 正在运行 → **停止**（红色方块），点击先弹**确认框**「停止当前任务？」再中断。
-  - 空输入 + 空闲 → **不显示任何按钮**（左上角已经有返回，不要再放一个叉）。
+- 右下角按钮始终显示：有文字/图片 → 发送（主题色箭头）；运行中空输入 → 停止（红色方块，确认后中断）；空闲空输入 → 灰色不可用箭头（不要隐藏，也不要换成叉）。
+- 客户端命令既认 `/compact` 也认裸 `compact`（interrupt/model/agent/reload 同理）；compact 时 Toast 提示「正在压缩上下文…」，compaction 事件驱动 LiveBubble 的压缩状态。
 - 排队 / steer 发送后**不要改 statusLine**，保留服务端真实状态；用户知道自己已经插进队列，多余的提示只会带来 bug。
 
 ### 4.6 消息与工具卡片
@@ -128,6 +126,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 ### 4.8 后台 shell
 
 - 悬浮球只显示**当前会话自己的**后台 shell（`Shell.Info.metadata.sessionID == current.id`）。
+- `/api/shell`、`/api/shell/{id}/output`、`DELETE /api/shell/{id}` 都是 **location 作用域**，必须带 `location[directory]=<当前会话目录>`；不带会去查根目录，导致悬浮球看不到当前会话的 shell。
 - 别的会话在跑 shell 时，当前对话不显示悬浮球。
 - 原版 Ctrl+B：`POST /api/session/{id}/background` 把正在阻塞的 shell 移到后台。
   - 精简模式：在运行中的 shell 那一行右侧显示「后台」。

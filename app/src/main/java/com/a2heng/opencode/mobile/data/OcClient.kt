@@ -234,8 +234,12 @@ class OcClient(rawBase: String, private val password: String) {
         post("/api/location/reload")
     }
 
-    suspend fun shells(): List<ShellInfo> =
-        unwrapArray(get("/api/shell")).mapNotNull { item ->
+    private fun locationQuery(directory: String?): String =
+        if (directory.isNullOrBlank()) "" else
+            "?location%5Bdirectory%5D=" + java.net.URLEncoder.encode(directory, "UTF-8")
+
+    suspend fun shells(directory: String? = null): List<ShellInfo> =
+        unwrapArray(get("/api/shell" + locationQuery(directory))).mapNotNull { item ->
             val o = item as? JsonObject ?: return@mapNotNull null
             ShellInfo(
                 id = o.str("id") ?: return@mapNotNull null,
@@ -246,8 +250,8 @@ class OcClient(rawBase: String, private val password: String) {
             )
         }
 
-    suspend fun shellOutput(id: String): String {
-        val e = get("/api/shell/$id/output")
+    suspend fun shellOutput(id: String, directory: String? = null): String {
+        val e = get("/api/shell/$id/output" + locationQuery(directory))
         return when (e) {
             is JsonPrimitive -> e.content
             is JsonObject -> e.str("output") ?: e.str("data") ?: e.toString()
@@ -255,8 +259,8 @@ class OcClient(rawBase: String, private val password: String) {
         }
     }
 
-    suspend fun stopShell(id: String) {
-        delete("/api/shell/$id")
+    suspend fun stopShell(id: String, directory: String? = null) {
+        delete("/api/shell/$id" + locationQuery(directory))
     }
 
     suspend fun runCommand(

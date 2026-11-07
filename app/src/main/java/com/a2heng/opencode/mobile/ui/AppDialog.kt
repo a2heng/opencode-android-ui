@@ -35,9 +35,12 @@ fun AppDialog(
     onDismissRequest: () -> Unit,
     title: @Composable () -> Unit,
     text: @Composable () -> Unit,
-    confirmButton: @Composable () -> Unit,
+    confirmButton: (@Composable () -> Unit)? = null,
     dismissButton: (@Composable () -> Unit)? = null,
     contentPadding: androidx.compose.ui.unit.Dp = 24.dp,
+    outerHorizontalPadding: androidx.compose.ui.unit.Dp = 24.dp,
+    outerVerticalPadding: androidx.compose.ui.unit.Dp = 32.dp,
+    maxContentHeight: androidx.compose.ui.unit.Dp = 500.dp,
 ) {
     var backProgress by remember { mutableFloatStateOf(0f) }
     val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
@@ -61,7 +64,7 @@ fun AppDialog(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             modifier = Modifier
-                .padding(horizontal = 24.dp, vertical = 32.dp)
+                .padding(horizontal = outerHorizontalPadding, vertical = outerVerticalPadding)
                 .imePadding()
                 .fillMaxWidth()
                 .widthIn(max = 520.dp)
@@ -77,17 +80,19 @@ fun AppDialog(
                 Column(
                     Modifier
                         .padding(top = 16.dp)
-                        .heightIn(max = 500.dp),
+                        .heightIn(max = maxContentHeight),
                 ) { text() }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    dismissButton?.invoke()
-                    confirmButton()
+                if (confirmButton != null || dismissButton != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        dismissButton?.invoke()
+                        confirmButton?.invoke()
+                    }
                 }
             }
         }

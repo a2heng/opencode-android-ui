@@ -1196,7 +1196,7 @@ private fun AssistantText(text: String) {
 }
 
 /** 工具卡片正文最多预览的行数：超过就显示「… 展开」，所有工具共用这一个阈值。 */
-private const val TOOL_PREVIEW_LINES = 16
+private const val TOOL_PREVIEW_LINES = 20
 
 /**
  * 多行文本的「省略 + 展开」：到固定行数后加省略号，末尾给一个可点的高亮「展开」，
@@ -1295,11 +1295,11 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
+            .padding(vertical = 2.dp)
             .clickableNoRipple { expanded = true }
             .animateContentSize(tween(durationMillis = 120)),
     ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Rounded.Psychology,
@@ -1327,20 +1327,40 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                 )
             }
             // 卡片本身就是唯一容器：不再套一层深色背景 + padding
-            ClampedText(
-                text,
-                maxLines = 14,
-                onExpand = { expanded = true },
-                maskColor = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            )
+            if (detail == "expanded") {
+                MarkdownText(
+                    text,
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    compact = true,
+                )
+            } else {
+                ClampedText(
+                    text,
+                    maxLines = 16,
+                    onExpand = { expanded = true },
+                    maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+            }
         }
     }
     }
     if (expanded) {
         AppDialog(
             onDismissRequest = { expanded = false },
-            title = { Text("思考过程 · ${text.length} 字") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { expanded = false }, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Rounded.ArrowBack,
+                            contentDescription = "返回",
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text("思考过程 · ${text.length} 字")
+                }
+            },
             text = {
                 Box(
                     Modifier
@@ -1354,8 +1374,10 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                     )
                 }
             },
-            confirmButton = { TextButton(onClick = { expanded = false }) { Text("关闭") } },
-            contentPadding = 14.dp,
+            contentPadding = 10.dp,
+            outerHorizontalPadding = 6.dp,
+            outerVerticalPadding = 8.dp,
+            maxContentHeight = 760.dp,
         )
     }
 }
@@ -1399,6 +1421,7 @@ private fun ToolBlock(
     baseDir: String = "",
 ) {
     val hasDiff = part.diff.isNotBlank()
+    val cleanPatch = if (hasDiff) cleanDiff(part.diff) else ""
     val hasOutput = part.output.isNotBlank()
     val hasImages = part.images.isNotEmpty()
     val hasError = part.error.isNotBlank()
@@ -1480,6 +1503,7 @@ private fun ToolBlock(
     val isEditTool = part.name in setOf("edit", "patch", "multiedit")
     val isWriteTool = part.name == "write"
     val isReadTool = part.name.lowercase() == "read"
+    val isExpanded = detail == "expanded"
     val displayName = toolDisplayName(part.name)
     val inputPath = if (isReadTool || isEditTool || isWriteTool) firstLineText(part.input) else ""
     val relPath = shortToolPath(inputPath, baseDir)
@@ -1489,8 +1513,8 @@ private fun ToolBlock(
         null
     }
     val writeLineCount = if (isWriteTool) part.payload.lineSequence().count() else 0
-    val addLines = if (isEditTool) part.diff.lineSequence().count { it.startsWith("+") && !it.startsWith("+++") } else 0
-    val delLines = if (isEditTool) part.diff.lineSequence().count { it.startsWith("-") && !it.startsWith("---") } else 0
+    val addLines = if (isEditTool) cleanPatch.lineSequence().count { it.startsWith("+") } else 0
+    val delLines = if (isEditTool) cleanPatch.lineSequence().count { it.startsWith("-") } else 0
     val subtitle = when {
         isReadTool -> listOfNotNull(relPath.ifBlank { null }, readRange).joinToString(" · ")
         isWriteTool -> listOfNotNull(relPath.ifBlank { null }, "${writeLineCount} 行").joinToString(" · ")
@@ -1506,11 +1530,11 @@ private fun ToolBlock(
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
+            .padding(vertical = 2.dp)
             .clickableNoRipple { onOpen(part) }
             .animateContentSize(tween(durationMillis = 120)),
     ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(toolIcon(part.name), contentDescription = null, modifier = Modifier.size(15.dp), tint = statusColor)
                 Spacer(Modifier.width(6.dp))
@@ -1554,13 +1578,24 @@ private fun ToolBlock(
                             )
                             .padding(6.dp),
                     ) {
-                        ClampedText(
-                            part.output.takeLast(12000),
-                            maxLines = TOOL_PREVIEW_LINES,
-                            onExpand = { onOpen(part) },
-                            maskColor = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        if (isExpanded) {
+                            Text(
+                                part.output.takeLast(30000),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            ClampedText(
+                                part.output.takeLast(12000),
+                                maxLines = TOOL_PREVIEW_LINES,
+                                onExpand = { onOpen(part) },
+                                maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             } else {
@@ -1587,73 +1622,117 @@ private fun ToolBlock(
                             )
                             .padding(6.dp),
                     ) {
-                        ClampedText(
-                            readBody.take(20000),
-                            maxLines = TOOL_PREVIEW_LINES,
-                            onExpand = { onOpen(part) },
-                            maskColor = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        if (isExpanded) {
+                            Text(
+                                readBody.take(30000),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            ClampedText(
+                                readBody.take(20000),
+                                maxLines = TOOL_PREVIEW_LINES,
+                                onExpand = { onOpen(part) },
+                                maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
                 if (hasImages) {
                     part.images.forEach { DataUriImage(it) }
                 }
                 if (hasDiff) {
-                    val longDiff = part.diff.lineSequence().count() > TOOL_PREVIEW_LINES
-                    Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 340.dp)
-                                .clip(RoundedCornerShape(6.dp)),
-                        ) {
-                            DiffView(part.diff)
-                        }
-                        if (longDiff) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp),
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .clickableNoRipple { onOpen(part) },
+                    if (isExpanded) {
+                        DiffView(cleanPatch)
+                    } else {
+                        val longDiff = cleanPatch.lineSequence().count() > TOOL_PREVIEW_LINES
+                        Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 340.dp)
+                                    .clip(RoundedCornerShape(6.dp)),
                             ) {
-                                Text(
-                                    "展开",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                )
+                                DiffView(cleanPatch)
+                            }
+                            if (longDiff) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .clickableNoRipple { onOpen(part) },
+                                ) {
+                                    Text(
+                                        "展开",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    )
+                                }
                             }
                         }
                     }
                 }
                 if (isWriteTool && part.payload.isNotBlank()) {
-                    ClampedText(
-                        part.payload.take(12000),
-                        maxLines = TOOL_PREVIEW_LINES,
-                        onExpand = { onOpen(part) },
-                        maskColor = MaterialTheme.colorScheme.surface,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 5.dp)
-                            .background(
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
-                                RoundedCornerShape(6.dp),
-                            )
-                            .padding(8.dp),
-                    )
+                    if (isExpanded) {
+                        Text(
+                            part.payload.take(30000),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 5.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                    RoundedCornerShape(6.dp),
+                                )
+                                .padding(6.dp),
+                        )
+                    } else {
+                        ClampedText(
+                            part.payload.take(12000),
+                            maxLines = TOOL_PREVIEW_LINES,
+                            onExpand = { onOpen(part) },
+                            maskColor = MaterialTheme.colorScheme.surface,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 5.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                    RoundedCornerShape(6.dp),
+                                )
+                                .padding(8.dp),
+                        )
+                    }
                 }
                 if (hasOutput && !isWriteTool && !isReadTool && (!isEditTool || !hasDiff)) {
-                    ClampedText(
-                        part.output.takeLast(12000),
-                        maxLines = TOOL_PREVIEW_LINES,
-                        onExpand = { onOpen(part) },
-                        maskColor = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
-                    )
+                    if (isExpanded) {
+                        Text(
+                            part.output.takeLast(30000),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
+                        )
+                    } else {
+                        ClampedText(
+                            part.output.takeLast(12000),
+                            maxLines = TOOL_PREVIEW_LINES,
+                            onExpand = { onOpen(part) },
+                            maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
+                        )
+                    }
                 }
             }
             if (hasError) {
@@ -1718,12 +1797,20 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                 shape = RoundedCornerShape(20.dp),
                 tonalElevation = 6.dp,
                 modifier = Modifier
-                    .padding(horizontal = 10.dp, vertical = 16.dp)
+                    .padding(horizontal = 4.dp, vertical = 8.dp)
                     .fillMaxWidth()
-                    .widthIn(max = 560.dp),
+                    .widthIn(max = 720.dp),
             ) {
-                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { closing = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Rounded.ArrowBack,
+                                contentDescription = "返回",
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
                         Icon(
                             toolIcon(part.name),
                             contentDescription = null,
@@ -1757,7 +1844,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Column(
                         Modifier
-                            .heightIn(max = 500.dp)
+                            .heightIn(max = 760.dp)
                             .verticalScroll(rememberScrollState()),
                     ) {
                         if (isReadTool) {
@@ -1804,7 +1891,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                                 part.images.forEach { DataUriImage(it) }
                             }
                             if (part.diff.isNotBlank()) {
-                                DiffView(part.diff)
+                                DiffView(cleanDiff(part.diff))
                             }
                             if (part.output.isNotBlank() && (isShellTool || !isEditTool)) {
                                 Spacer(Modifier.height(6.dp))
@@ -1825,12 +1912,6 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = 10.dp),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = { closing = true }) { Text("关闭") }
                     }
                 }
             }
@@ -1858,6 +1939,19 @@ private fun toolDisplayName(name: String): String = when (name.lowercase()) {
     "task", "subagent" -> "子任务"
     else -> name
 }
+
+/** 去掉 patch 自带的文件头（Index/====/---/+++），路径已经在卡片副标题里显示一次了。 */
+private fun cleanDiff(diff: String): String =
+    diff.lineSequence()
+        .filterNot { line ->
+            line.startsWith("Index: ") ||
+                line.startsWith("diff --git ") ||
+                line.startsWith("--- ") ||
+                line.startsWith("+++ ") ||
+                (line.isNotEmpty() && line.all { it == '=' })
+        }
+        .joinToString("\n")
+        .trim()
 
 private fun firstLineText(text: String): String =
     text.lineSequence().firstOrNull()?.trim().orEmpty()

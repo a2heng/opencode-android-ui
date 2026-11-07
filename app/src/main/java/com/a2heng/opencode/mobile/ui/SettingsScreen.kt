@@ -200,10 +200,15 @@ fun SettingsScreen(model: AppModel) {
             selected = model.detailLevel == "compact",
         ) { model.updateDetailLevel("compact") }
         OptionRow(
-            title = "完整",
-            subtitle = "思考、diff、工具输出全部展开",
+            title = "适中",
+            subtitle = "工具/思考先预览一部分，超出点「展开」看完整",
             selected = model.detailLevel == "full",
         ) { model.updateDetailLevel("full") }
+        OptionRow(
+            title = "完整",
+            subtitle = "全部平铺，不再折叠或展开",
+            selected = model.detailLevel == "expanded",
+        ) { model.updateDetailLevel("expanded") }
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("更新", style = MaterialTheme.typography.titleSmall)

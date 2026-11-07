@@ -187,6 +187,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         label = "chat-enter",
     )
     val motion = maxOf(backProgress, enterProgress)
+    val deviceCorner = rememberDeviceCornerRadius()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -290,7 +291,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
 
     Scaffold(
         modifier = Modifier
-            .clip(RoundedCornerShape((34f * motion).dp))
+            .clip(RoundedCornerShape(deviceCorner * motion))
             .graphicsLayer {
                 // 子页返回：不移动，只淡出；干净利落
                 alpha = 1f - motion
@@ -523,6 +524,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                         detail = model.detailLevel,
                                         baseDir = session.directory,
                                         animateAppear = animateToolsFor == msg.id,
+                                        onBackground = { model.backgroundCurrent() },
                                         onLongPressUser = { revertTarget = it },
                                         onOpenTool = { detailTool = it },
                                     )
@@ -1155,6 +1157,7 @@ private fun MessageItem(
     detail: String,
     baseDir: String = "",
     animateAppear: Boolean = false,
+    onBackground: () -> Unit = {},
     onLongPressUser: (Msg) -> Unit = {},
     onOpenTool: (Part.Tool) -> Unit = {},
 ) {
@@ -1194,7 +1197,7 @@ private fun MessageItem(
                 is Part.Tool -> {
                     if (detail == "compact") {
                         // 精简模式是一行一行的平铺，不做展开/淡入动画，避免卡顿
-                        ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir)
+                        ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
                     } else {
                         var appeared by remember(part.toolID) { mutableStateOf(!animateAppear) }
                         LaunchedEffect(part.toolID) { appeared = true }
@@ -1209,7 +1212,7 @@ private fun MessageItem(
                                 shrinkTowards = Alignment.Top,
                             ) + androidx.compose.animation.fadeOut(tween(durationMillis = 80)),
                         ) {
-                            ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir)
+                            ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
                         }
                     }
                 }
@@ -1454,6 +1457,7 @@ private fun ToolBlock(
     onOpen: (Part.Tool) -> Unit,
     rate: Double? = null,
     baseDir: String = "",
+    onBackground: () -> Unit = {},
 ) {
     val hasDiff = part.diff.isNotBlank()
     val cleanPatch = if (hasDiff) cleanDiff(part.diff) else ""
@@ -1466,6 +1470,8 @@ private fun ToolBlock(
         "running" -> Sky
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val runningShell = part.name.lowercase() in setOf("shell", "bash", "sh") && part.status == "running"
+    var backgrounded by remember(part.toolID) { mutableStateOf(false) }
 
     if (detail == "compact") {
         val summary = part.input.lineSequence().firstOrNull()?.take(140).orEmpty()
@@ -1506,6 +1512,21 @@ private fun ToolBlock(
                 hasOutput -> "输出"
                 hasError -> "错误"
                 else -> ""
+            }
+            if (runningShell && !backgrounded) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "后台",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickableNoRipple {
+                            backgrounded = true
+                            onBackground()
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                )
             }
             if (rate != null) {
                 Spacer(Modifier.width(6.dp))
@@ -1784,6 +1805,7 @@ private fun ToolBlock(
 
 @Composable
 private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: () -> Unit) {
+    val deviceCorner = rememberDeviceCornerRadius()
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isWriteTool = part.name == "write"
     val isEditTool = part.name in setOf("edit", "patch", "multiedit")
@@ -1829,7 +1851,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
         ) {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(deviceCorner),
                 tonalElevation = 6.dp,
                 modifier = Modifier
                     .padding(horizontal = 4.dp, vertical = 8.dp)

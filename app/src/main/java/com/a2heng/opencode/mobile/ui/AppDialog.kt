@@ -43,6 +43,7 @@ fun AppDialog(
     maxContentHeight: androidx.compose.ui.unit.Dp = 500.dp,
 ) {
     var backProgress by remember { mutableFloatStateOf(0f) }
+    val deviceCorner = rememberDeviceCornerRadius()
     val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     Dialog(
         onDismissRequest = onDismissRequest,
@@ -60,7 +61,7 @@ fun AppDialog(
             }
         }
         Surface(
-            shape = RoundedCornerShape(28.dp),
+            shape = RoundedCornerShape(deviceCorner),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             modifier = Modifier

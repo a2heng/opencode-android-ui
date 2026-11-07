@@ -88,6 +88,7 @@ fun SessionCacheScreen(
         label = "cache-enter",
     )
     val motion = maxOf(backProgress, enterProgress)
+    val deviceCorner = rememberDeviceCornerRadius()
     val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     if (backOwner != null) {
         PredictiveBackHandler { events ->
@@ -108,7 +109,7 @@ fun SessionCacheScreen(
 
     Scaffold(
         modifier = Modifier
-            .clip(RoundedCornerShape((34f * motion).dp))
+            .clip(RoundedCornerShape(deviceCorner * motion))
             .graphicsLayer {
                 // 子页返回：不移动，只淡出；干净利落
                 alpha = 1f - motion

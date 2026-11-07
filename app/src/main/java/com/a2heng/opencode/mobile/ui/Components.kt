@@ -1,5 +1,7 @@
 package com.a2heng.opencode.mobile.ui
 
+import android.os.Build
+import android.view.RoundedCorner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,6 +26,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +50,27 @@ fun RateDot(rate: Double, modifier: Modifier = Modifier, size: Int = 9) {
 }
 
 fun Color.luminanceIsDark(): Boolean = (0.299 * red + 0.587 * green + 0.114 * blue) < 0.5
+
+/**
+ * 读取屏幕物理 R 角（px -> dp），用于让卡片/子页的圆角与手机屏幕一致。
+ * Android 12+ 才有 Display.getRoundedCorner；没有圆角的设备回退到 24dp。
+ */
+@Composable
+fun rememberDeviceCornerRadius(): Dp {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    return remember(view, density) {
+        val px = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val display = view.display
+            if (display == null) 0 else {
+                listOf(RoundedCorner.POSITION_TOP_LEFT, RoundedCorner.POSITION_TOP_RIGHT)
+                    .mapNotNull { display.getRoundedCorner(it)?.radius }
+                    .maxOrNull() ?: 0
+            }
+        } else 0
+        if (px > 0) with(density) { px.toDp() } else 24.dp
+    }
+}
 
 @Composable
 fun StatCard(

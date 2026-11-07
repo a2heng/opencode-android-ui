@@ -17,7 +17,7 @@ cd ~/opencode-mobile
 adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-- **用户明确：不要打 tag、不要发 Release。** 在线更新已经验证过，不需要同时维护两个 App；后续只构建/安装 debug。
+- **发版**：用户要求过按语义化版本打 tag + 发 GitHub Release（v0.3.x 系列）；日常仍然只构建/安装 debug。
 - 无线调试失效时：`adb pair <ip>:<pair-port> <码>`；连接端口用 `avahi-browse -rt _adb-tls-connect._tcp` 查（MagicOS 上 `adb mdns services` 不可靠）。
 - 手机默认微信输入法：`adb shell input text` 会进拼音候选，自动化测试需要空格/选词提交。
 - 安装完直接告诉用户「已更新」，不要在对话里截屏或乱点手机。
@@ -131,8 +131,10 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   主题色至少 blue/purple/cyan/green/orange/pink/red/teal + 黑白 + 系统取色；点一下立即生效。
 - 卡片/顶栏/底栏的背景要有层次：浅色下 background 用灰白、surfaceVariant 要明显深一点；深色下 surface 比 background 亮、surfaceVariant 更亮。
 - opencode 的 question/form：语义照官方 `packages/app/src/session/requests/question-machine.ts`：**单选** `pick(value)` = `selected=[value]` 且关掉自定义（再点同一项不取消）；**输入自定义文字** = 清空单选并置 `customSelected`；**多选** 是和自定义共存的 toggle。选项必须画出选中标记（单选圆点 / 多选方块打勾）+ `primaryContainer` 底色 + primary 边框。
-- 表单状态**必须用可观察容器**：`mutableStateMapOf` 的 value 用 `SnapshotStateList`（`mutableStateListOf`）或 `mutableStateOf`；普通 `MutableList` 改了不会触发重组，表现就是“点了没反应”。
-- 单选选中后输入框仍然可用：点输入框获得焦点就取消上面的单选（否则永远改不回自定义答案）；不要把自定义输入 `enabled = false`。
+- 表单状态**必须用可观察容器**：`mutableStateMapOf<String, Set<String>>`（每次点击整体替换 Set）或 `mutableStateOf`；普通 `MutableList` 改了不触发重组（“点了没反应”），`SnapshotStateList` 在 `getOrPut` 里也容易写出状态错乱（两个同时亮）。
+- 单选项和自定义输入**双向互斥**：点选项 → 清空自定义文字 + `focusManager.clearFocus()`；点输入框 → 立即取消单选。
+  - 不能用 `onFocusChanged` 做这件事：输入框已经聚焦时再点不会再触发，必须用 `interactionSource` 收 `PressInteraction.Press`。
+  - 自定义输入永远 `enabled = true`。
 - 底部必须有显眼的「提交」按钮（用 `Button`，不要只靠 TextButton），并处理 IME 遮挡（`imePadding`）。
 - 外观设置（跟随系统/浅色/深色）对**所有页面**生效，包括断开后的登录页。
 

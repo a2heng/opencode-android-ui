@@ -51,6 +51,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -60,6 +62,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.lazy.LazyColumn
@@ -122,7 +125,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -2411,7 +2413,7 @@ private fun PickerSheet(title: String, rows: List<PickerRow>, onDismiss: () -> U
 private fun FormDialog(form: FormInfo, onDismiss: () -> Unit, onSubmit: (JsonObject) -> Unit) {
     val values = remember(form.id) { mutableStateMapOf<String, String>() }
     val bools = remember(form.id) { mutableStateMapOf<String, Boolean>() }
-    val multis = remember(form.id) { mutableStateMapOf<String, SnapshotStateList<String>>() }
+    val multis = remember(form.id) { mutableStateMapOf<String, Set<String>>() }
 
     AppDialog(
         onDismissRequest = onDismiss,
@@ -2432,7 +2434,7 @@ private fun FormDialog(form: FormInfo, onDismiss: () -> Unit, onSubmit: (JsonObj
                             "multiselect" -> put(
                                 f.key,
                                 buildJsonArray {
-                                    (multis[f.key] ?: emptyList()).forEach { add(JsonPrimitive(it)) }
+                                    (multis[f.key] ?: emptySet()).forEach { add(JsonPrimitive(it)) }
                                 },
                             )
                             "integer" -> values[f.key]?.toLongOrNull()?.let { put(f.key, JsonPrimitive(it)) }
@@ -2457,7 +2459,7 @@ private fun FieldEditor(
     field: FormField,
     values: MutableMap<String, String>,
     bools: MutableMap<String, Boolean>,
-    multis: MutableMap<String, SnapshotStateList<String>>,
+    multis: MutableMap<String, Set<String>>,
 ) {
     Column {
         Text(
@@ -2480,9 +2482,23 @@ private fun FieldEditor(
                 }
             }
             "string" -> {
+                val focusManager = LocalFocusManager.current
+                // 点击输入框就用 press 事件取消单选：光靠 onFocusChanged 时，输入框已经聚焦就不会再触发
+                val interaction = remember(field.key) { MutableInteractionSource() }
+                LaunchedEffect(interaction, field.key) {
+                    interaction.interactions.collect { event ->
+                        if (event is PressInteraction.Press && field.type != "multiselect") {
+                            if (!multis[field.key].isNullOrEmpty()) multis[field.key] = emptySet()
+                        }
+                    }
+                }
                 // 选项在上面，自定义输入在最下面
                 if (field.options.isNotEmpty()) {
-                    OptionChips(field, multis, values)
+                    OptionChips(field, multis, values) {
+                        // 选选项 = 关掉自定义回答：清空文字并收起焦点，两块互相排斥
+                        values[field.key] = ""
+                        focusManager.clearFocus()
+                    }
                     Spacer(Modifier.height(6.dp))
                     Text(
                         "或自定义回答",
@@ -2492,13 +2508,13 @@ private fun FieldEditor(
                 }
                 val singleChosen = field.options.isNotEmpty() &&
                     field.type != "multiselect" &&
-                    !(multis[field.key]?.isEmpty() ?: true)
+                    !multis[field.key].isNullOrEmpty()
                 OutlinedTextField(
                     value = values[field.key] ?: field.defaultText ?: "",
                     onValueChange = {
                         values[field.key] = it
                         // 自己输入时，上面的单选选项自动取消
-                        if (field.type != "multiselect") multis[field.key]?.clear()
+                        if (field.type != "multiselect") multis[field.key] = emptySet()
                     },
                     placeholder = {
                         Text(
@@ -2511,14 +2527,8 @@ private fun FieldEditor(
                             },
                         )
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { state ->
-                            // 焦点落到输入框就取消单选：否则选了选项后输入框被禁用，永远改不回来
-                            if (state.isFocused && field.type != "multiselect") {
-                                if (!(multis[field.key]?.isEmpty() ?: true)) multis[field.key]?.clear()
-                            }
-                        },
+                    interactionSource = interaction,
+                    modifier = Modifier.fillMaxWidth(),
                     maxLines = 4,
                 )
             }
@@ -2535,9 +2545,14 @@ private fun FieldEditor(
 }
 
 @Composable
-private fun OptionChips(field: FormField, multis: MutableMap<String, SnapshotStateList<String>>, values: MutableMap<String, String>) {
-    // 必须是 SnapshotStateList：普通 MutableList 改了不会触发重组，点了看起来「没反应」
-    val selected = multis.getOrPut(field.key) { mutableStateListOf() }
+private fun OptionChips(
+    field: FormField,
+    multis: MutableMap<String, Set<String>>,
+    values: MutableMap<String, String>,
+    onPicked: () -> Unit = {},
+) {
+    // 用不可变 Set 放在 state map 里：每次点击整体替换，避免 list 变异不触发重组 / 状态错乱
+    val selected = multis[field.key] ?: emptySet()
     val primary = MaterialTheme.colorScheme.primary
     val isMulti = field.type == "multiselect"
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
@@ -2555,13 +2570,13 @@ private fun OptionChips(field: FormField, multis: MutableMap<String, SnapshotSta
                     .fillMaxWidth()
                     .clickableNoRipple {
                         // 与官方前端一致：单选再点同一项不会取消；多选是切换；
-                        // 选选项会关掉自定义回答（清空自定义文字），输入文字则取消单选。
+                        // 选选项 = 关掉自定义回答（清空文字并收键盘），两块互斥。
                         if (isMulti) {
-                            if (isSelected) selected.remove(option.value) else selected.add(option.value)
+                            multis[field.key] =
+                                if (isSelected) selected - option.value else selected + option.value
                         } else {
-                            selected.clear()
-                            selected.add(option.value)
-                            values[field.key] = ""
+                            multis[field.key] = setOf(option.value)
+                            onPicked()
                         }
                     },
             ) {

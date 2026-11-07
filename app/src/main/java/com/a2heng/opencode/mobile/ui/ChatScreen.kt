@@ -80,6 +80,7 @@ import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.UTurnLeft
+import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -158,6 +159,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var detailTool by remember { mutableStateOf<Part.Tool?>(null) }
     var showCommands by remember { mutableStateOf(false) }
     var showFilePicker by remember { mutableStateOf(false) }
+    var openMenu by remember { mutableStateOf(false) }
     var backProgress by remember { mutableFloatStateOf(0f) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -301,6 +303,51 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         }
                     }
                     Box {
+                        IconButton(onClick = { openMenu = true }) {
+                            Icon(
+                                Icons.Rounded.UnfoldMore,
+                                contentDescription = "打开的会话",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        DropdownMenu(expanded = openMenu, onDismissRequest = { openMenu = false }) {
+                            if (model.openSessions.isEmpty()) {
+                                DropdownMenuItem(text = { Text("还没有打开的会话") }, onClick = { openMenu = false })
+                            }
+                            model.openSessions.forEach { item ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            item.shortTitle,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        if (item.id == session.id) {
+                                            Icon(
+                                                Icons.Rounded.Check,
+                                                contentDescription = "当前",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        } else if (model.isActive(item.id)) {
+                                            Box(
+                                                Modifier
+                                                    .size(7.dp)
+                                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        openMenu = false
+                                        if (item.id != session.id) model.openSession(item)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Box {
                         IconButton(onClick = { menu = true }) {
                             Icon(Icons.Rounded.MoreVert, contentDescription = "更多")
                         }
@@ -328,40 +375,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                     model.loadMessages()
                                 },
                             )
-                            HorizontalDivider()
-                            Text(
-                                "运行中发送",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            )
-                            SendModeItem("steer（默认）", model.sendMode == "steer") {
-                                model.updateSendMode("steer")
-                                menu = false
-                            }
-                            SendModeItem("queue", model.sendMode == "queue") {
-                                model.updateSendMode("queue")
-                                menu = false
-                            }
-                            SendModeItem("中断后发送", model.sendMode == "interrupt") {
-                                model.updateSendMode("interrupt")
-                                menu = false
-                            }
-                            HorizontalDivider()
-                            Text(
-                                "显示精细度",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            )
-                            SendModeItem("精简", model.detailLevel == "compact") {
-                                model.updateDetailLevel("compact")
-                                menu = false
-                            }
-                            SendModeItem("完整", model.detailLevel == "full") {
-                                model.updateDetailLevel("full")
-                                menu = false
-                            }
                         }
                     }
                 },
@@ -379,6 +392,10 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 onPickFile = { showFilePicker = true },
                 onPickCommand = { showCommands = true; model.loadMeta(session.directory) },
                 onRemoveAttachment = { attachments.removeAt(it) },
+                onClose = {
+                    model.closeSession()
+                    model.refreshSessions()
+                },
                 onSend = {
                     val text = input.trim()
                     if (text.isNotEmpty() || attachments.isNotEmpty()) {
@@ -652,6 +669,7 @@ private fun ChatComposer(
     onPickCommand: () -> Unit,
     onRemoveAttachment: (Int) -> Unit,
     onSend: () -> Unit,
+    onClose: () -> Unit,
 ) {
     var actionsOpen by rememberSaveable { mutableStateOf(false) }
     val rotation by animateFloatAsState(if (actionsOpen) 45f else 0f, label = "plus-rotate")
@@ -776,18 +794,31 @@ private fun ChatComposer(
                     maxLines = 1,
                     shape = RoundedCornerShape(18.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                    trailingIcon = {
+                        if (value.isNotEmpty()) {
+                            IconButton(onClick = { onChange("") }, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "清空",
+                                    modifier = Modifier.size(17.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
                 )
                 Spacer(Modifier.width(8.dp))
+                val hasContent = value.isNotBlank() || attachments.isNotEmpty()
                 FloatingActionButton(
-                    onClick = onSend,
+                    onClick = { if (hasContent) onSend() else onClose() },
                     modifier = Modifier.size(48.dp),
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     shape = CircleShape,
                 ) {
                     Icon(
-                        Icons.Rounded.ArrowUpward,
-                        contentDescription = "发送",
+                        if (hasContent) Icons.Rounded.ArrowUpward else Icons.Rounded.Close,
+                        contentDescription = if (hasContent) "发送" else "关闭",
                         modifier = Modifier.size(22.dp),
                     )
                 }

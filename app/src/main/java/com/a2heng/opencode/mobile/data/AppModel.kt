@@ -1,6 +1,7 @@
 package com.a2heng.opencode.mobile.data
 
 import android.app.Application
+import com.a2heng.opencode.mobile.ConnectionService
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -139,6 +140,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var current by mutableStateOf<SessionInfo?>(null)
         private set
+    /** 最近打开过的会话（顶部下拉里展示的“活着的标签页”） */
+    var openSessions by mutableStateOf<List<SessionInfo>>(emptyList())
+        private set
     var messages by mutableStateOf<List<Msg>>(emptyList())
         private set
     var messagesLoading by mutableStateOf(false)
@@ -245,6 +249,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 if (remember) {
                     prefs.edit().putString("url", normalized).putString("password", pwd).apply()
                 }
+                retryJob?.cancel()
+                retryDelay = 5_000L
+                ConnectionService.start(getApplication())
                 refreshSessions()
                 loadPermissions()
                 loadMeta()
@@ -253,11 +260,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 connecting = false
                 connected = false
                 connectionError = e.message ?: e.javaClass.simpleName
+                scheduleReconnect()
             }
         }
     }
 
     fun disconnect() {
+        retryJob?.cancel()
+        ConnectionService.stop(getApplication())
         eventJob?.cancel()
         reloadJob?.cancel()
         sessionsJob?.cancel()
@@ -374,6 +384,35 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         ctx.startActivity(intent)
     }
 
+    // ---- 自动重连（退避，避免频繁打服务端） --------------------------------
+    private var retryJob: Job? = null
+    private var retryDelay = 5_000L
+
+    private fun scheduleReconnect() {
+        if (retryJob?.isActive == true) return
+        if (serverUrl.isBlank()) return
+        val delayMs = retryDelay
+        retryDelay = (retryDelay * 2).coerceAtMost(60_000L)
+        retryJob = viewModelScope.launch {
+            delay(delayMs)
+            if (!connected && !connecting && serverUrl.isNotBlank()) {
+                connect(serverUrl, password)
+            }
+        }
+    }
+
+    /** 手动重连：立即尝试，不等待退避。 */
+    fun retryNow() {
+        retryJob?.cancel()
+        retryDelay = 5_000L
+        if (serverUrl.isNotBlank()) connect(serverUrl, password)
+    }
+
+    /** 回到前台时调用：只在断开时补一次，连上就不动。 */
+    fun retryIfNeeded() {
+        if (!connected && !connecting && serverUrl.isNotBlank()) retryNow()
+    }
+
     // =========================================================================
     // 会话
     // =========================================================================
@@ -390,6 +429,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 sessions = list.sortedByDescending { it.updated }
                 activeIds = active
                 current?.let { cur -> sessions.firstOrNull { it.id == cur.id }?.let { current = it } }
+                openSessions = openSessions.map { old ->
+                    sessions.firstOrNull { it.id == old.id } ?: old
+                }
             } catch (e: Exception) {
                 connectionError = e.message
             } finally {
@@ -400,6 +442,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun openSession(session: SessionInfo) {
         current = session
+        openSessions = (listOf(session) + openSessions.filterNot { it.id == session.id }).take(6)
         messages = emptyList()
         liveText = ""
         liveReasoning = ""

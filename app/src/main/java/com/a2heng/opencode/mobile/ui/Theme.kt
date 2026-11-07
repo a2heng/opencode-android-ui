@@ -32,42 +32,42 @@ val Danger = Color(0xFFF07178)
 private val MonoDark = darkColorScheme(
     primary = Color(0xFFE8EBEF),
     onPrimary = Color(0xFF0B0D10),
-    primaryContainer = Color(0xFF272C33),
+    primaryContainer = Color(0xFF2B323B),
     onPrimaryContainer = Color(0xFFE6E8EC),
     secondary = Color(0xFFB6BCC6),
     onSecondary = Color(0xFF14181D),
-    secondaryContainer = Color(0xFF232830),
+    secondaryContainer = Color(0xFF27303A),
     onSecondaryContainer = Color(0xFFDCE0E6),
     tertiary = Color(0xFF9DA5B1),
     onTertiary = Color(0xFF14181D),
-    background = Color(0xFF0E1116),
+    background = Color(0xFF090C11),
     onBackground = Color(0xFFE6EAF0),
-    surface = Color(0xFF141A21),
+    surface = Color(0xFF151B23),
     onSurface = Color(0xFFE6EAF0),
-    surfaceVariant = Color(0xFF1E2732),
-    onSurfaceVariant = Color(0xFFA7B2C0),
-    outline = Color(0xFF39424E),
+    surfaceVariant = Color(0xFF242E39),
+    onSurfaceVariant = Color(0xFFAAB6C4),
+    outline = Color(0xFF414C59),
     error = Danger,
 )
 
 private val MonoLight = lightColorScheme(
     primary = Color(0xFF23272E),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE7E9ED),
+    primaryContainer = Color(0xFFDDE3EC),
     onPrimaryContainer = Color(0xFF1A1D21),
     secondary = Color(0xFF5B6068),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE3E5E9),
+    secondaryContainer = Color(0xFFDCE2EA),
     onSecondaryContainer = Color(0xFF23272E),
     tertiary = Color(0xFF7A8089),
     onTertiary = Color.White,
-    background = Color(0xFFF6F7F9),
+    background = Color(0xFFF0F2F6),
     onBackground = Color(0xFF14181D),
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF14181D),
-    surfaceVariant = Color(0xFFEDF0F4),
-    onSurfaceVariant = Color(0xFF5B6572),
-    outline = Color(0xFFC7CDD6),
+    surfaceVariant = Color(0xFFE3E8EF),
+    onSurfaceVariant = Color(0xFF58626F),
+    outline = Color(0xFFB8C1CC),
     error = Color(0xFFC0323D),
 )
 
@@ -76,15 +76,24 @@ private val DarkAccents = mapOf(
     "purple" to Color(0xFFBB9AF7),
     "orange" to Color(0xFFE0AF68),
     "cyan" to Color(0xFF7DCFFF),
+    "green" to Color(0xFF9ECE6A),
+    "pink" to Color(0xFFF7768E),
+    "red" to Color(0xFFF07178),
+    "teal" to Color(0xFF73DACA),
 )
 private val LightAccents = mapOf(
     "blue" to Color(0xFF2E5AAC),
     "purple" to Color(0xFF6E4BB8),
     "orange" to Color(0xFFA15C00),
     "cyan" to Color(0xFF1B6E84),
+    "green" to Color(0xFF3A7D2C),
+    "pink" to Color(0xFFB03060),
+    "red" to Color(0xFFB3363F),
+    "teal" to Color(0xFF0F6F6B),
 )
 
-fun themePresetKeys(): List<String> = listOf("mono", "dynamic", "blue", "purple", "orange", "cyan")
+fun themePresetKeys(): List<String> =
+    listOf("mono", "dynamic", "blue", "purple", "cyan", "green", "orange", "pink", "red", "teal")
 
 fun themePresetLabel(key: String): String = when (key) {
     "mono" -> "黑白灰（默认）"
@@ -93,7 +102,18 @@ fun themePresetLabel(key: String): String = when (key) {
     "purple" -> "紫色"
     "orange" -> "橙色"
     "cyan" -> "青色"
+    "green" -> "绿色"
+    "pink" -> "粉色"
+    "red" -> "红色"
+    "teal" -> "青绿"
     else -> key
+}
+
+/** 设置页色卡用：某个主题色在当前深浅模式下的实际 accent。 */
+fun themeAccentColor(key: String, dark: Boolean): Color = when (key) {
+    "mono" -> if (dark) Color(0xFFE8EBEF) else Color(0xFF23272E)
+    "dynamic" -> if (dark) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
+    else -> (if (dark) DarkAccents else LightAccents)[key] ?: (if (dark) Color(0xFF8FA3B8) else Color(0xFF5B6068))
 }
 
 private fun darkPreset(accent: Color): ColorScheme = MonoDark.copy(

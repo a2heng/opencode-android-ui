@@ -76,6 +76,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 ### 4.6 消息与工具卡片
 
 - Pending 卡片变成真正的用户消息时，**不要整块消失再出现**：
+  - 所有排队的 pending 放在底部一个**稳定的 Pending 区域**（一个列表 item，内部多行），上面是运行区域；
   - 保持同一个气泡和文字，把宽度从 pending 的上限（300dp）平滑放到消息的宽度（330dp），文字自然重排变宽；
   - 高度只收掉底部 `pending...` 那一行（高度 + 透明度一起动画），颜色从 pending 灰底渐变到用户气泡色；
   - 动画要等上一条助手消息收尾/重排落定后再开始（当前先等 220ms），避免上一条和 pending 同时动导致弹跳。
@@ -86,8 +87,13 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   - **`write` 顶部是文件名，下面必须是写入的文件内容**（`Part.Tool.payload`），不是状态或 output。
   - 卡片出现/消失用 scale + fade 动画（不要瞬间出现）。
 - 精简模式工具行右侧的命中率要**右对齐、固定宽度**（当前 48dp，`TextAlign.End`），不同行要对齐。
-- 流式思考框：高度封顶 150dp，用 `animateContentSize` 平滑增长（不要固定 150dp 浪费空白，也不要突然跳高）；已完成的消息思考框用 `heightIn(max = 220.dp)`。
-- 内嵌滚动区（思考框、工具输出、diff、write 内容）**不要拦截嵌套滚动**（会卡手）；滑到底时用底部弹出的**弧线阴影**提示，不要用文字「已到底」。
+- 流式思考框：卡片里面带头部（图标 +「思考」+ 进行中/完成 + 字数），内容最多 14 行 + 右下角「展开」弹窗；不要固定高度/内嵌滚动，也不要把标题放在卡片外面。
+- 工具多行输出（shell / diff / write / read）：统一 `TOOL_PREVIEW_LINES = 16` 行阈值，超出在右下角嵌一个「展开」按钮（按钮右下圆角=卡片圆角、左上切角，不要用渐变阴影），点开工具详情弹窗；正文里不要塞滚动条，滚动效果交给系统原生 overscroll。
+- 工具卡片信息去重：`read` 路径只显示一次（副标题 + 行号范围），正文去掉 `Read file …` 头；`edit` 显示路径 + `+N −M`；`write` 显示路径 + 行数。
+- 消息列表**保持服务端返回顺序**（desc 反转后直接拼接），不要按 `time.created` 重排：队列消息的 created 可能是入队时间，重排会把上一轮的工具挤到 pending 后面，造成「工具先闪在 Pending 下面再跳上去」的 bug。
+- 新消息 item 用 `animateItem` 淡入/位置过渡；新出现的工具块再淡入 180ms，不要瞬间闪现。
+- Pending 区域内部按**旧→新**从上到下排列（新的在最下面）。
+- 正文仍是单列：用户气泡靠右，助手内容和工具靠左（不要做左右分栏或左右气泡，用户已确认没有必要）。
 
 ### 4.7 设置与登录
 
@@ -100,6 +106,10 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   - 没有选档位就是 **Default**；服务端的 `variant: "default"` 归一成 null。
 - 登录/断开后的连接页必须使用当前主题（跟随系统 / 浅色 / 深色），根布局要显式铺 `MaterialTheme.colorScheme.background`，
   否则 edge-to-edge 会露出黑色窗口背景。
+- 外观设置 / 主题色：横向色卡（圆形色块 + 短标签），不要用竖排 OptionRow；外观三张卡（跟随系统=黑白渐变、浅色=白、深色=黑），
+  主题色至少 blue/purple/cyan/green/orange/pink/red/teal + 黑白 + 系统取色；点一下立即生效。
+- 卡片/顶栏/底栏的背景要有层次：浅色下 background 用灰白、surfaceVariant 要明显深一点；深色下 surface 比 background 亮、surfaceVariant 更亮。
+- opencode 的 question/form：选项在上面，自定义输入在最下面；单选选中后自定义输入禁用；输入自定义内容时自动取消单选；底部必须有显眼的「提交」按钮（用 `Button`，不要只靠 TextButton），并处理 IME 遮挡（`imePadding`）。
 - 外观设置（跟随系统/浅色/深色）对**所有页面**生效，包括断开后的登录页。
 
 ### 4.8 后台 shell

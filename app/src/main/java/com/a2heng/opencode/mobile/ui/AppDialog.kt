@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +61,7 @@ fun AppDialog(
             tonalElevation = 6.dp,
             modifier = Modifier
                 .padding(horizontal = 24.dp, vertical = 32.dp)
+                .imePadding()
                 .fillMaxWidth()
                 .widthIn(max = 520.dp)
                 .graphicsLayer {
@@ -70,7 +73,11 @@ fun AppDialog(
         ) {
             Column(Modifier.padding(24.dp)) {
                 title()
-                Column(Modifier.padding(top = 16.dp)) { text() }
+                Column(
+                    Modifier
+                        .padding(top = 16.dp)
+                        .heightIn(max = 500.dp),
+                ) { text() }
                 Row(
                     Modifier
                         .fillMaxWidth()

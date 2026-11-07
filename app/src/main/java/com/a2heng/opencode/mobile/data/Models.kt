@@ -373,7 +373,7 @@ data class FsEntry(val path: String, val type: String) {
     val isDir: Boolean get() = type == "directory"
 }
 
-data class Queued(val id: String, val text: String)
+data class Queued(val id: String, val text: String, val delivery: String = "queue")
 
 data class CommandInfo(val name: String, val description: String)
 

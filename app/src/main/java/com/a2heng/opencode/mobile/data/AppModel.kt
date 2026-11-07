@@ -664,15 +664,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun collapseMessages(list: List<Msg>): List<Msg> {
-        // opencode 的 /api/session/<id>/message 是「新的在前」，这里统一排成旧 → 新，
-        // 否则聊天界面整个是倒序的。工具/推理消息可能很碎；顺手去掉完全空白的系统消息。
+        // 服务端返回的列表本身是权威顺序（desc），这里只做过滤，不再按 created 重排：
+        // 队列消息的 created 可能是入队时间，按时间排会把上一轮的工具挤到它后面，造成闪烁。
         return list.filter {
             when {
                 it.isUser -> true
                 it.isAssistant -> it.parts.isNotEmpty() || it.text.isNotBlank()
                 else -> false
             }
-        }.sortedBy { it.created }
+        }
     }
 
     fun sendPrompt(text: String, attachments: List<Attachment> = emptyList()) {
@@ -775,6 +775,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     Queued(
                         id = it.str("id") ?: "",
                         text = it.obj("payload")?.str("text") ?: "",
+                        delivery = it.str("delivery") ?: "queue",
                     )
                 }
             } catch (_: Exception) {

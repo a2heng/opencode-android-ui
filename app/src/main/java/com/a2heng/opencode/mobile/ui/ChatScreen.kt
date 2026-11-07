@@ -85,6 +85,7 @@ import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.UTurnLeft
 import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -107,6 +108,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -174,6 +176,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var prevQueue by remember { mutableStateOf<List<Queued>>(emptyList()) }
     var queueSession by remember { mutableStateOf(session.id) }
     var backProgress by remember { mutableFloatStateOf(0f) }
+    var screenReady by remember(session.id) { mutableStateOf(false) }
+    LaunchedEffect(session.id) {
+        screenReady = false
+        kotlinx.coroutines.delay(600)
+        screenReady = true
+    }
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val enterProgress by animateFloatAsState(
@@ -254,7 +262,10 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         val removed = prevQueue.filterNot { old -> now.any { it.id == old.id } }
         prevQueue = now
         removed.lastOrNull()?.let { item ->
-            if (!model.consumeWithdrawn(item.id)) morph = PendingMorph(item.text)
+            // steer 会被直接插进当前回答，不会变成独立的用户消息，不能做 morph
+            if (!model.consumeWithdrawn(item.id) && item.delivery != "steer") {
+                morph = PendingMorph(item.text)
+            }
         }
     }
     val morphMsg = morph?.let { m ->
@@ -269,6 +280,19 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
     val visibleMessages = remember(model.messages, morphMsg?.id) {
         if (morphMsg == null) model.messages else model.messages.filterNot { it.id == morphMsg.id }
+    }
+
+    // 临时调试：复现「工具先出现在 Pending 下面再跳上去」时，把列表顺序和工具状态打到 logcat（tag OCUI）
+    LaunchedEffect(model.queue, model.messages, morph?.text, morphMsg?.id, model.sending) {
+        val last = model.messages.takeLast(3).map { m ->
+            val tools = m.parts.filterIsInstance<Part.Tool>().joinToString(",") { it.name + ":" + it.status }
+            "${m.role}(${m.id.takeLast(4)}${if (tools.isNotEmpty()) " $tools" else ""})"
+        }
+        android.util.Log.d(
+            "OCUI",
+            "queue=${model.queue.map { it.text.take(8) + ":" + it.delivery }} morph=${morph?.text?.take(8)} " +
+                "morphMsg=${morphMsg?.id?.takeLast(4)} sending=${model.sending} last=$last",
+        )
     }
 
     val pendingPermissions = model.permissions.filter { it.sessionID == session.id }
@@ -509,9 +533,21 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             if (model.detailLevel == "compact") 4.dp else 10.dp,
                         ),
                     ) {
-                        items(model.queue.asReversed(), key = { "pending:${it.id}" }) { item ->
-                            PendingBubble(item.text, pendingPhase) {
-                                model.withdrawQueued(item.id) { restored -> input = restored }
+                        if (model.queue.isNotEmpty()) {
+                            // 队列统一作为底部一个稳定区域，避免每条 pending 增删时整段重排
+                            item(key = "pending-area") {
+                                Column(
+                                    Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    model.queue.forEach { item ->
+                                        key(item.id) {
+                                            PendingBubble(item.text, pendingPhase) {
+                                                model.withdrawQueued(item.id) { restored -> input = restored }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         if (model.liveReasoning.isNotBlank() || model.liveText.isNotBlank() || model.sending) {
@@ -531,12 +567,22 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             }
                         }
                         items(visibleMessages.asReversed(), key = { it.id }) { msg ->
-                            MessageItem(
-                                msg = msg,
-                                detail = model.detailLevel,
-                                onLongPressUser = { revertTarget = it },
-                                onOpenTool = { detailTool = it },
-                            )
+                            Box(
+                                Modifier.animateItem(
+                                    fadeInSpec = tween(180),
+                                    placementSpec = tween(220),
+                                    fadeOutSpec = tween(150),
+                                ),
+                            ) {
+                                MessageItem(
+                                    msg = msg,
+                                    detail = model.detailLevel,
+                                    baseDir = session.directory,
+                                    animateAppear = screenReady,
+                                    onLongPressUser = { revertTarget = it },
+                                    onOpenTool = { detailTool = it },
+                                )
+                            }
                         }
                         if (model.loadingOlderMessages) {
                             item(key = "older-loading") {
@@ -790,7 +836,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     detailTool?.let { tool ->
-        ToolDetailDialog(tool) { detailTool = null }
+        ToolDetailDialog(tool, session.directory) { detailTool = null }
     }
 
     if (showFilePicker) {
@@ -1139,6 +1185,8 @@ private fun ComposerAction(
 private fun MessageItem(
     msg: Msg,
     detail: String,
+    baseDir: String = "",
+    animateAppear: Boolean = false,
     onLongPressUser: (Msg) -> Unit = {},
     onOpenTool: (Part.Tool) -> Unit = {},
 ) {
@@ -1171,15 +1219,27 @@ private fun MessageItem(
         return
     }
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .animateContentSize(tween(durationMillis = 180)),
-    ) {
+    Column(Modifier.fillMaxWidth()) {
         msg.parts.forEach { part ->
             when (part) {
                 is Part.Reasoning -> ReasoningBlock(part.text, detail)
-                is Part.Tool -> ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate)
+                is Part.Tool -> {
+                    var appeared by remember(part.toolID) { mutableStateOf(!animateAppear) }
+                    LaunchedEffect(part.toolID) { appeared = true }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = appeared,
+                        enter = androidx.compose.animation.expandVertically(
+                            animationSpec = tween(durationMillis = 140),
+                            expandFrom = Alignment.Top,
+                        ) + androidx.compose.animation.fadeIn(tween(durationMillis = 100)),
+                        exit = androidx.compose.animation.shrinkVertically(
+                            animationSpec = tween(durationMillis = 110),
+                            shrinkTowards = Alignment.Top,
+                        ) + androidx.compose.animation.fadeOut(tween(durationMillis = 80)),
+                    ) {
+                        ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir)
+                    }
+                }
                 is Part.Text -> AssistantText(part.text)
             }
         }
@@ -1194,52 +1254,65 @@ private fun MessageItem(
 @Composable
 private fun AssistantText(text: String) {
     if (text.isBlank()) return
-    MarkdownText(text, Modifier.fillMaxWidth().padding(vertical = 2.dp))
+    MarkdownText(
+        text,
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .animateContentSize(tween(durationMillis = 120)),
+    )
 }
 
+/** 工具卡片正文最多预览的行数：超过就显示「… 展开」，所有工具共用这一个阈值。 */
+private const val TOOL_PREVIEW_LINES = 16
+
 /**
- * 内嵌滚动区：保持正常的滚动链（不在边界处抢手势），
- * 滑到底时在底部弹出一条柔和的弧线阴影，提示「已经到底了」。
+ * 多行文本的「省略 + 展开」：到固定行数后加省略号，末尾给一个可点的高亮「展开」，
+ * 完整内容交给工具详情/思考详情弹窗去看，不在正文里塞滚动条。
  */
 @Composable
-private fun GuardedScroll(
-    state: androidx.compose.foundation.ScrollState,
+private fun ClampedText(
+    text: String,
+    maxLines: Int,
+    onExpand: () -> Unit,
+    maskColor: Color,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    fontSize: androidx.compose.ui.unit.TextUnit = 10.5.sp,
 ) {
+    // 注意：不要用 text 作为 remember 的 key。流式文本每来一段都会把状态重置成 false，
+    // 按钮就会「出现→消失→出现」地闪；只从 false 变 true，绝不回退。
+    var overflowed by remember { mutableStateOf(false) }
     Box(modifier) {
-        Box(Modifier.fillMaxWidth().verticalScroll(state)) {
-            content()
-        }
-        val atEnd = state.maxValue > 0 && state.value >= state.maxValue - 1
-        var edgeHint by remember { mutableStateOf(false) }
-        LaunchedEffect(atEnd) {
-            if (atEnd) {
-                edgeHint = true
-                kotlinx.coroutines.delay(500)
-                edgeHint = false
-            }
-        }
-        val hint by androidx.compose.animation.core.animateFloatAsState(
-            targetValue = if (edgeHint) 1f else 0f,
-            animationSpec = tween(durationMillis = 180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            label = "scroll-end-hint",
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            fontSize = fontSize,
+            color = color,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = {
+                if (it.hasVisualOverflow) overflowed = true
+            },
         )
-        if (hint > 0.01f) {
-            // 类似旧版 Android 的到头提示：边缘一条固定的半透明渐隐，出现一会儿自动消失
-            val shadow = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f)
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .alpha(hint)
-                    .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, shadow),
-                        ),
-                    ),
-            )
+        if (overflowed) {
+            // 嵌在右下角的小按钮：按钮自己的右下圆角就是卡片圆角，左上做成切角
+            Surface(
+                color = maskColor,
+                shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .clickableNoRipple(onExpand),
+            ) {
+                Text(
+                    "展开",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+            }
         }
     }
 }
@@ -1247,46 +1320,73 @@ private fun GuardedScroll(
 @Composable
 private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) {
     if (text.isBlank() || detail == "compact") return
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Rounded.Psychology,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(5.dp))
-            Text(
-                "思考过程 · ${text.length} 字",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        val state = rememberScrollState()
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 6.dp, top = 4.dp)
-                .then(
-                    // 流式思考时高度封顶，只随内容平滑增长，避免整块突然变高把上面顶飞
-                    if (live) Modifier
-                        .heightIn(max = 150.dp)
-                        .animateContentSize(tween(durationMillis = 180))
-                    else Modifier.heightIn(max = 220.dp)
+    var expanded by remember { mutableStateOf(false) }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .animateContentSize(tween(durationMillis = 120)),
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.Psychology,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                .padding(8.dp),
-        ) {
-            GuardedScroll(state, Modifier.fillMaxWidth()) {
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    text,
-                    style = MaterialTheme.typography.bodySmall,
+                    "思考",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (live) "进行中" else "完成",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (live) Sky else Accent,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${text.length} 字",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.5.sp,
                 )
             }
+            // 卡片本身就是唯一容器：不再套一层深色背景 + padding
+            ClampedText(
+                text,
+                maxLines = 14,
+                onExpand = { expanded = true },
+                maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
         }
+    }
+    if (expanded) {
+        AppDialog(
+            onDismissRequest = { expanded = false },
+            title = { Text("思考过程 · ${text.length} 字") },
+            text = {
+                Box(
+                    Modifier
+                        .heightIn(max = 460.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { expanded = false }) { Text("关闭") } },
+        )
     }
 }
 
@@ -1326,6 +1426,7 @@ private fun ToolBlock(
     detail: String,
     onOpen: (Part.Tool) -> Unit,
     rate: Double? = null,
+    baseDir: String = "",
 ) {
     val hasDiff = part.diff.isNotBlank()
     val hasOutput = part.output.isNotBlank()
@@ -1408,16 +1509,41 @@ private fun ToolBlock(
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isEditTool = part.name in setOf("edit", "patch", "multiedit")
     val isWriteTool = part.name == "write"
+    val isReadTool = part.name.lowercase() == "read"
+    val displayName = toolDisplayName(part.name)
+    val inputPath = if (isReadTool || isEditTool || isWriteTool) firstLineText(part.input) else ""
+    val relPath = shortToolPath(inputPath, baseDir)
+    val readRange = if (isReadTool) {
+        Regex("""lines? (\d+)[-–](\d+)""").find(part.output)?.let { "L${it.groupValues[1]}–${it.groupValues[2]}" }
+    } else {
+        null
+    }
+    val writeLineCount = if (isWriteTool) part.payload.lineSequence().count() else 0
+    val addLines = if (isEditTool) part.diff.lineSequence().count { it.startsWith("+") && !it.startsWith("+++") } else 0
+    val delLines = if (isEditTool) part.diff.lineSequence().count { it.startsWith("-") && !it.startsWith("---") } else 0
+    val subtitle = when {
+        isReadTool -> listOfNotNull(relPath.ifBlank { null }, readRange).joinToString(" · ")
+        isWriteTool -> listOfNotNull(relPath.ifBlank { null }, "${writeLineCount} 行").joinToString(" · ")
+        isEditTool -> listOfNotNull(
+            relPath.ifBlank { null },
+            if (addLines + delLines > 0) "+$addLines −$delLines" else null,
+        ).joinToString(" · ")
+        else -> ""
+    }
+    val readBody = if (isReadTool) part.output.substringAfter('\n', part.output) else ""
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .animateContentSize(tween(durationMillis = 120)),
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(toolIcon(part.name), contentDescription = null, modifier = Modifier.size(15.dp), tint = statusColor)
                 Spacer(Modifier.width(6.dp))
-                Text(part.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+                Text(displayName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     toolStatusLabel(part),
@@ -1429,21 +1555,45 @@ private fun ToolBlock(
                     Text("已截断", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            if (subtitle.isNotBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
 
             if (isShellTool) {
                 if (part.input.isNotBlank()) {
                     ShellBlock(part.input.take(4000), command = true, maxLines = 6)
                 }
                 if (hasOutput) {
-                    GuardedScroll(
-                        rememberScrollState(),
-                        Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                                RoundedCornerShape(6.dp),
+                            )
+                            .padding(6.dp),
                     ) {
-                        ShellBlock(part.output.takeLast(12000), command = false, maxLines = Int.MAX_VALUE)
+                        ClampedText(
+                            part.output.takeLast(12000),
+                            maxLines = TOOL_PREVIEW_LINES,
+                            onExpand = { onOpen(part) },
+                            maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             } else {
-                if (part.input.isNotBlank()) {
+                if (!isReadTool && !isEditTool && !isWriteTool && part.input.isNotBlank()) {
                     Text(
                         part.input.lineSequence().firstOrNull()?.take(220) ?: "",
                         style = MaterialTheme.typography.labelSmall,
@@ -1455,53 +1605,84 @@ private fun ToolBlock(
                         modifier = Modifier.padding(top = 3.dp),
                     )
                 }
+                if (isReadTool && readBody.isNotBlank()) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                                RoundedCornerShape(6.dp),
+                            )
+                            .padding(6.dp),
+                    ) {
+                        ClampedText(
+                            readBody.take(20000),
+                            maxLines = TOOL_PREVIEW_LINES,
+                            onExpand = { onOpen(part) },
+                            maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
                 if (hasImages) {
                     part.images.forEach { DataUriImage(it) }
                 }
                 if (hasDiff) {
-                    GuardedScroll(
-                        rememberScrollState(),
-                        Modifier.fillMaxWidth().heightIn(max = 380.dp),
-                    ) {
-                        DiffView(part.diff)
+                    val longDiff = part.diff.lineSequence().count() > TOOL_PREVIEW_LINES
+                    Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 340.dp)
+                                .clip(RoundedCornerShape(6.dp)),
+                        ) {
+                            DiffView(part.diff)
+                        }
+                        if (longDiff) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 6.dp),
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .clickableNoRipple { onOpen(part) },
+                            ) {
+                                Text(
+                                    "展开",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
                     }
                 }
                 if (isWriteTool && part.payload.isNotBlank()) {
-                    GuardedScroll(
-                        rememberScrollState(),
-                        Modifier
+                    ClampedText(
+                        part.payload.take(12000),
+                        maxLines = TOOL_PREVIEW_LINES,
+                        onExpand = { onOpen(part) },
+                        maskColor = MaterialTheme.colorScheme.surface,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 320.dp)
                             .padding(top = 5.dp)
                             .background(
                                 MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
                                 RoundedCornerShape(6.dp),
-                            ),
-                    ) {
-                        Text(
-                            part.payload.take(12000),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(8.dp),
-                        )
-                    }
+                            )
+                            .padding(8.dp),
+                    )
                 }
-                if (hasOutput && !isEditTool && !isWriteTool) {
-                    GuardedScroll(
-                        rememberScrollState(),
-                        Modifier.fillMaxWidth().heightIn(max = 300.dp),
-                    ) {
-                        Text(
-                            part.output.takeLast(12000),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 5.dp),
-                        )
-                    }
+                if (hasOutput && !isWriteTool && !isReadTool && (!isEditTool || !hasDiff)) {
+                    ClampedText(
+                        part.output.takeLast(12000),
+                        maxLines = TOOL_PREVIEW_LINES,
+                        onExpand = { onOpen(part) },
+                        maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
+                    )
                 }
             }
             if (hasError) {
@@ -1517,10 +1698,26 @@ private fun ToolBlock(
 }
 
 @Composable
-private fun ToolDetailDialog(part: Part.Tool, onDismiss: () -> Unit) {
+private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: () -> Unit) {
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isWriteTool = part.name == "write"
     val isEditTool = part.name in setOf("edit", "patch", "multiedit")
+    val isReadTool = part.name.lowercase() == "read"
+    val displayName = toolDisplayName(part.name)
+    val inputPath = if (isReadTool || isEditTool || isWriteTool) firstLineText(part.input) else ""
+    val relPath = shortToolPath(inputPath, baseDir)
+    val readRange = if (isReadTool) {
+        Regex("""lines? (\d+)[-–](\d+)""").find(part.output)?.let { "L${it.groupValues[1]}–${it.groupValues[2]}" }
+    } else {
+        null
+    }
+    val subtitle = when {
+        isReadTool -> listOfNotNull(relPath.ifBlank { null }, readRange).joinToString(" · ")
+        isWriteTool -> relPath
+        isEditTool -> relPath
+        else -> ""
+    }
+    val readBody = if (isReadTool) part.output.substringAfter('\n', part.output) else ""
     val statusColor = when (part.status) {
         "completed", "success" -> Accent
         "error", "failed" -> MaterialTheme.colorScheme.error
@@ -1572,7 +1769,7 @@ private fun ToolDetailDialog(part: Part.Tool, onDismiss: () -> Unit) {
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            part.name,
+                            displayName,
                             style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier.weight(1f),
                         )
@@ -1582,13 +1779,45 @@ private fun ToolDetailDialog(part: Part.Tool, onDismiss: () -> Unit) {
                             color = statusColor,
                         )
                     }
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Column(
                         Modifier
                             .heightIn(max = 500.dp)
                             .verticalScroll(rememberScrollState()),
                     ) {
-                        if (isWriteTool) {
+                        if (isReadTool) {
+                            if (readBody.isNotBlank()) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
+                                            RoundedCornerShape(8.dp),
+                                        )
+                                        .padding(10.dp),
+                                ) {
+                                    Text(
+                                        readBody.take(30000),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        } else if (isWriteTool) {
                             // write：上面是文件路径，下面直接显示写入的内容（不是状态/输出）
                             if (part.input.isNotBlank()) {
                                 Text(
@@ -1605,7 +1834,7 @@ private fun ToolDetailDialog(part: Part.Tool, onDismiss: () -> Unit) {
                                     Modifier
                                         .fillMaxWidth()
                                         .background(
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
                                             RoundedCornerShape(8.dp),
                                         )
                                         .padding(10.dp),
@@ -1683,6 +1912,34 @@ private fun toolStatusLabel(part: Part.Tool): String = when {
     part.status == "running" -> "运行中"
     part.status == "error" || part.status == "failed" -> "失败"
     else -> part.status.ifBlank { "—" }
+}
+
+private fun toolDisplayName(name: String): String = when (name.lowercase()) {
+    "read" -> "读取"
+    "write" -> "写入"
+    "edit", "patch", "multiedit" -> "编辑"
+    "shell", "bash", "sh" -> "命令"
+    "grep", "search" -> "搜索"
+    "glob" -> "查找文件"
+    "webfetch", "fetch" -> "抓取网页"
+    "websearch" -> "网页搜索"
+    "task", "subagent" -> "子任务"
+    else -> name
+}
+
+private fun firstLineText(text: String): String =
+    text.lineSequence().firstOrNull()?.trim().orEmpty()
+
+private fun shortToolPath(path: String, baseDir: String): String {
+    val p = path.trim()
+    if (p.isEmpty()) return ""
+    val base = baseDir.trimEnd('/')
+    if (base.isNotEmpty() && p.startsWith("$base/")) return p.removePrefix("$base/")
+    val parts = p.trim('/').split('/').filter { it.isNotEmpty() }
+    return when {
+        parts.size <= 2 -> p
+        else -> "…/" + parts.takeLast(2).joinToString("/")
+    }
 }
 
 @Composable
@@ -1784,7 +2041,7 @@ private fun MorphingUserBubble(
         }
     }
 
-    val pendingBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    val pendingBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
     val userBg = MaterialTheme.colorScheme.primaryContainer
     val bg = androidx.compose.ui.graphics.lerp(pendingBg, userBg, progress)
     val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f * (1f - progress))
@@ -1879,7 +2136,7 @@ private fun PendingBubble(text: String, phase: Float, onWithdraw: () -> Unit) {
             )
         }
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
             shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
             border = androidx.compose.foundation.BorderStroke(
                 1.dp,
@@ -2076,7 +2333,7 @@ private fun FormDialog(form: FormInfo, onDismiss: () -> Unit, onSubmit: (JsonObj
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            Button(onClick = {
                 val answer = buildJsonObject {
                     form.fields.forEach { f ->
                         when (f.type) {
@@ -2089,7 +2346,11 @@ private fun FormDialog(form: FormInfo, onDismiss: () -> Unit, onSubmit: (JsonObj
                             )
                             "integer" -> values[f.key]?.toLongOrNull()?.let { put(f.key, JsonPrimitive(it)) }
                             "number" -> values[f.key]?.toDoubleOrNull()?.let { put(f.key, JsonPrimitive(it)) }
-                            else -> values[f.key]?.let { put(f.key, JsonPrimitive(it)) }
+                            else -> {
+                                // 选了选项就用选项，否则用自定义输入
+                                val chosen = multis[f.key]?.firstOrNull()
+                                put(f.key, JsonPrimitive(chosen ?: values[f.key] ?: ""))
+                            }
                         }
                     }
                 }
@@ -2128,16 +2389,37 @@ private fun FieldEditor(
                 }
             }
             "string" -> {
+                // 选项在上面，自定义输入在最下面
+                if (field.options.isNotEmpty()) {
+                    OptionChips(field, multis, values)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "或自定义回答",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                val singleChosen = field.options.isNotEmpty() &&
+                    field.type != "multiselect" &&
+                    !(multis[field.key]?.isEmpty() ?: true)
                 OutlinedTextField(
                     value = values[field.key] ?: field.defaultText ?: "",
-                    onValueChange = { values[field.key] = it },
-                    placeholder = { if (field.placeholder.isNotBlank()) Text(field.placeholder) },
+                    onValueChange = {
+                        values[field.key] = it
+                        // 自己输入时，上面的单选选项自动取消
+                        if (field.type != "multiselect") multis[field.key]?.clear()
+                    },
+                    enabled = !singleChosen,
+                    placeholder = {
+                        Text(
+                            field.placeholder.ifBlank {
+                                if (field.options.isNotEmpty()) "或者直接输入…" else ""
+                            },
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 4,
                 )
-                if (field.options.isNotEmpty()) {
-                    OptionChips(field, multis, values)
-                }
             }
             "multiselect" -> OptionChips(field, multis, values)
             else -> OutlinedTextField(

@@ -1,5 +1,8 @@
 package com.a2heng.opencode.mobile.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,8 +45,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.a2heng.opencode.mobile.data.AppModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -142,30 +151,27 @@ fun SettingsScreen(model: AppModel) {
 
         Spacer(Modifier.height(8.dp))
         Text("外观", style = MaterialTheme.typography.titleSmall)
-        OptionRow(
-            title = "跟随系统",
-            subtitle = "深浅色由系统决定（默认）",
-            selected = model.appearance == "system",
-        ) { model.updateAppearance("system") }
-        OptionRow(
-            title = "浅色",
-            subtitle = "始终使用浅色",
-            selected = model.appearance == "light",
-        ) { model.updateAppearance("light") }
-        OptionRow(
-            title = "深色",
-            subtitle = "始终使用深色",
-            selected = model.appearance == "dark",
-        ) { model.updateAppearance("dark") }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            AppearanceSwatch("跟随系统", "system", model.appearance == "system") { model.updateAppearance("system") }
+            AppearanceSwatch("浅色", "light", model.appearance == "light") { model.updateAppearance("light") }
+            AppearanceSwatch("深色", "dark", model.appearance == "dark") { model.updateAppearance("dark") }
+        }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Text("主题色", style = MaterialTheme.typography.titleSmall)
-        themePresetKeys().forEach { key ->
-            OptionRow(
-                title = themePresetLabel(key),
-                subtitle = if (key == "dynamic") "Android 12+ Material You" else "预设",
-                selected = model.themeMode == key,
-            ) { model.updateThemeMode(key) }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            themePresetKeys().forEach { key ->
+                ThemeSwatch(key, selected = model.themeMode == key) { model.updateThemeMode(key) }
+            }
         }
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -307,5 +313,93 @@ private fun OptionRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun AppearanceSwatch(
+    label: String,
+    mode: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val brush = when (mode) {
+        "light" -> Brush.linearGradient(listOf(Color.White, Color.White))
+        "dark" -> Brush.linearGradient(listOf(Color(0xFF151B23), Color(0xFF151B23)))
+        else -> Brush.linearGradient(listOf(Color.White, Color(0xFF151B23)))
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(brush)
+                .border(
+                    if (selected) 2.dp else 1.dp,
+                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    CircleShape,
+                )
+                .clickableNoRipple(onClick),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun ThemeSwatch(
+    key: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
+    val brush = when (key) {
+        "dynamic" -> Brush.sweepGradient(
+            listOf(
+                Color(0xFF7AA2F7),
+                Color(0xFFBB9AF7),
+                Color(0xFFE0AF68),
+                Color(0xFF7DCFFF),
+                Color(0xFF7AA2F7),
+            ),
+        )
+        "mono" -> Brush.linearGradient(listOf(Color.White, Color(0xFF151B23)))
+        else -> Brush.linearGradient(listOf(themeAccentColor(key, dark), themeAccentColor(key, dark)))
+    }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(50.dp),
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(brush)
+                .border(
+                    if (selected) 2.dp else 1.dp,
+                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    CircleShape,
+                )
+                .clickableNoRipple(onClick),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            when (key) {
+                "mono" -> "黑白"
+                "dynamic" -> "系统"
+                else -> themePresetLabel(key)
+            },
+            fontSize = 9.sp,
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

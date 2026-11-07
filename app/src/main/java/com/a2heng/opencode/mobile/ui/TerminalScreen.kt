@@ -191,8 +191,8 @@ private fun TerminalView(model: AppModel, pty: PtyInfo) {
     val wide = cfg.screenWidthDp >= 600
     // 固定键盘占位（不随键盘高度变化）：竖屏底部 42% 高，横屏右侧 34% 宽
     val reserved = if (wide) (cfg.screenWidthDp * 0.34f).dp else (cfg.screenHeightDp * 0.42f).dp
-    val controls = @Composable {
-        TerminalControls(model, ctrl, shift, alt) { c, s, a -> ctrl = c; shift = s; alt = a }
+    val controls: @Composable (Boolean) -> Unit = { compact ->
+        TerminalControls(model, ctrl, shift, alt, compact) { c, s, a -> ctrl = c; shift = s; alt = a }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -224,7 +224,7 @@ private fun TerminalView(model: AppModel, pty: PtyInfo) {
                             .height(1.dp)
                             .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
                     )
-                    Box(Modifier.padding(top = 6.dp)) { controls() }
+                    Box(Modifier.padding(top = 6.dp)) { controls(true) }
                 }
             }
         } else {
@@ -242,7 +242,7 @@ private fun TerminalView(model: AppModel, pty: PtyInfo) {
                         .height(1.dp)
                         .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
                 )
-                Box(Modifier.padding(top = 6.dp), contentAlignment = Alignment.Center) { controls() }
+                Box(Modifier.padding(top = 4.dp), contentAlignment = Alignment.Center) { controls(false) }
             }
         }
     }
@@ -291,7 +291,9 @@ private fun arrowSeq(dir: Char, ctrl: Boolean, shift: Boolean, alt: Boolean): St
 }
 
 /**
- * 快捷键区：左下角是 Shift 在上、Ctrl/Alt 在下；右侧是 Home/End，再右边是独立方向键。
+ * 按键区：功能键一列，方向区独立。
+ * 方向区：上面 Del/Home/End，中间 ↑，下面 ← ↓ →。
+ * compact = 横屏（放在右侧窄条里，竖直排列）。
  */
 @Composable
 private fun TerminalControls(
@@ -299,44 +301,66 @@ private fun TerminalControls(
     ctrl: Boolean,
     shift: Boolean,
     alt: Boolean,
+    compact: Boolean,
     onMods: (Boolean, Boolean, Boolean) -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        // 左下角的开关：Shift 在 Ctrl 上面，Alt 在 Ctrl 右边
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                ToggleChip("Shift", shift) { onMods(ctrl, !shift, alt) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                ToggleChip("Ctrl", ctrl) { onMods(!ctrl, shift, alt) }
-                ToggleChip("Alt", alt) { onMods(ctrl, shift, !alt) }
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                KeyChip("Tab") { model.sendPty(if (shift) "\u001b[Z" else "\t") }
-                KeyChip("^C") { model.sendPty("\u0003") }
-                KeyChip("Esc") { model.sendPty("\u001b") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                EnterChip { cr -> model.sendPty(if (cr) "\r" else "\n") }
+    val keys: @Composable () -> Unit = {
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            // 第一列：缩放 / 第二列：Esc
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 KeyChip("A−") { model.updatePtyFontSize(model.ptyFontSize - 1f) }
                 KeyChip("A+") { model.updatePtyFontSize(model.ptyFontSize + 1f) }
             }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                KeyChip("Esc") { model.sendPty("\u001b") }
+                KeyChip("Tab") { model.sendPty(if (shift) "\u001b[Z" else "\t") }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                KeyChip("^C") { model.sendPty("\u0003") }
+                EnterChip { cr -> model.sendPty(if (cr) "\r" else "\n") }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                ToggleChip("Ctrl", ctrl) { onMods(!ctrl, shift, alt) }
+                ToggleChip("Shift", shift) { onMods(ctrl, !shift, alt) }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                ToggleChip("Alt", alt) { onMods(ctrl, shift, !alt) }
+            }
         }
-        // Home / End 在方向键左边，隔开一个按键的距离
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-            KeyChip("Home") { model.sendPty("\u001b[H") }
-            KeyChip("End") { model.sendPty("\u001b[F") }
-        }
-        Spacer(Modifier.width(30.dp))
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            KeyChip("↑") { model.sendPty(arrowSeq('A', ctrl, shift, alt)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    }
+    val pad: @Composable () -> Unit = {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                KeyChip("Del") { model.sendPty("\u007f") }
+                KeyChip("Home") { model.sendPty("\u001b[H") }
+                KeyChip("End") { model.sendPty("\u001b[F") }
+            }
+            Box(Modifier.width(64.dp), contentAlignment = Alignment.Center) {
+                KeyChip("↑") { model.sendPty(arrowSeq('A', ctrl, shift, alt)) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 KeyChip("←") { model.sendPty(arrowSeq('D', ctrl, shift, alt)) }
                 KeyChip("↓") { model.sendPty(arrowSeq('B', ctrl, shift, alt)) }
                 KeyChip("→") { model.sendPty(arrowSeq('C', ctrl, shift, alt)) }
             }
+        }
+    }
+
+    if (compact) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            keys()
+            pad()
+        }
+    } else {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            keys()
+            pad()
         }
     }
 }
@@ -353,7 +377,7 @@ private fun KeyChip(label: String, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelSmall,
             fontSize = 9.sp,
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
         )
     }
 }
@@ -410,7 +434,7 @@ private fun EnterChip(onSend: (Boolean) -> Unit) {
             style = MaterialTheme.typography.labelSmall,
             fontSize = 9.sp,
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
         )
     }
 }

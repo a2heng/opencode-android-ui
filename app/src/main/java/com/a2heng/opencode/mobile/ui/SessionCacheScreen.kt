@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -109,17 +110,14 @@ fun SessionCacheScreen(
         modifier = Modifier
             .clip(RoundedCornerShape((34f * motion).dp))
             .graphicsLayer {
-                // 不做淡化，只做预测式滑动；幅度加大
-                val scale = 1f - 0.10f * motion
-                scaleX = scale
-                scaleY = scale
-                translationX = size.width * 0.85f * motion
+                // 子页返回：不移动，只淡出；干净利落
+                alpha = 1f - motion
             },
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    FilledTonalIconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
                     }
                 },

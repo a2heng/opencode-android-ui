@@ -19,6 +19,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -95,6 +96,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -258,12 +260,14 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     } else {
         null
     }
-    val contextColor = when {
-        contextPct == null -> MaterialTheme.colorScheme.onSurfaceVariant
-        contextPct >= 75 -> MaterialTheme.colorScheme.error
-        contextPct >= 50 -> Warn
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val contextColor = contextPct?.let {
+        contextUsageColor(it, MaterialTheme.colorScheme.background.luminanceIsDark())
+    } ?: MaterialTheme.colorScheme.onSurfaceVariant
+    val agentDisplay = session.agent.ifBlank {
+        model.agents.firstOrNull { it.str("mode") == "primary" }?.str("name")
+            ?: model.agents.firstOrNull()?.str("name")
+            ?: "build"
+    }.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 
     val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     if (backOwner != null) {
@@ -288,11 +292,8 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         modifier = Modifier
             .clip(RoundedCornerShape((34f * motion).dp))
             .graphicsLayer {
-                val scale = 1f - 0.10f * motion
-                scaleX = scale
-                scaleY = scale
-                // 往右滑走，左下露出下面的上一页；不做淡化
-                translationX = size.width * 0.85f * motion
+                // 子页返回：不移动，只淡出；干净利落
+                alpha = 1f - motion
             },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -316,13 +317,13 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         modifier = Modifier.size(40.dp),
                     ) {
                         Icon(
-                            Icons.Rounded.ArrowBack,
+                            Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "返回",
                             modifier = Modifier.size(20.dp),
                         )
                     }
                     Spacer(Modifier.width(8.dp))
-                    // 左侧：标题一行 + 模型一行
+                    // 左侧：标题一行 + 模型胶囊
                     Column(Modifier.weight(1f)) {
                         Text(
                             session.shortTitle,
@@ -331,22 +332,42 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
-                                ?.takeIf { it.isNotBlank() } ?: "选择模型",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickableNoRipple {
-                                model.loadMeta(session.directory)
-                                pickModel = true
-                            },
-                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .padding(top = 1.dp)
+                                .clickableNoRipple {
+                                    model.loadMeta(session.directory)
+                                    pickModel = true
+                                },
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(5.dp)
+                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
+                                        ?.takeIf { it.isNotBlank() } ?: "选择模型",
+                                    fontSize = 10.sp,
+                                    lineHeight = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                     Spacer(Modifier.width(6.dp))
                     // 右侧三个方块：模式 / 命中 / 上下文
-                    InfoSquare("模式", session.agent.ifBlank { "默认" }) {
+                    InfoSquare("模式", agentDisplay) {
                         model.loadMeta(session.directory)
                         pickAgent = true
                     }
@@ -960,23 +981,23 @@ private fun ChatComposer(
                 }
                 AnimatedVisibility(
                     visible = actionsOpen,
-                    enter = androidx.compose.animation.expandHorizontally(
+                    enter = androidx.compose.animation.fadeIn(
+                        animationSpec = tween(durationMillis = 110),
+                    ) + androidx.compose.animation.scaleIn(
+                        initialScale = 0.92f,
                         animationSpec = tween(
-                            durationMillis = 220,
+                            durationMillis = 140,
                             easing = androidx.compose.animation.core.FastOutSlowInEasing,
                         ),
-                        expandFrom = Alignment.Start,
-                    ) + androidx.compose.animation.fadeIn(
-                        animationSpec = tween(durationMillis = 160),
                     ),
-                    exit = androidx.compose.animation.shrinkHorizontally(
+                    exit = androidx.compose.animation.fadeOut(
+                        animationSpec = tween(durationMillis = 90),
+                    ) + androidx.compose.animation.scaleOut(
+                        targetScale = 0.92f,
                         animationSpec = tween(
-                            durationMillis = 160,
+                            durationMillis = 100,
                             easing = androidx.compose.animation.core.FastOutSlowInEasing,
                         ),
-                        shrinkTowards = Alignment.Start,
-                    ) + androidx.compose.animation.fadeOut(
-                        animationSpec = tween(durationMillis = 120),
                     ),
                 ) {
                     Row(
@@ -1056,17 +1077,37 @@ private fun ChatComposer(
 }
 
 @Composable
+private fun DialogBackButton(onClick: () -> Unit) {
+    FilledTonalIconButton(
+        onClick = onClick,
+        modifier = Modifier.size(32.dp),
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+    ) {
+        Icon(
+            Icons.AutoMirrored.Rounded.ArrowBack,
+            contentDescription = "返回",
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
 private fun InfoSquare(
     label: String,
     value: String,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+    valueColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,
     onClick: () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
-            .size(38.dp)
+            .size(40.dp)
             .clickableNoRipple(onClick),
     ) {
         Column(
@@ -1078,7 +1119,7 @@ private fun InfoSquare(
                 label,
                 fontSize = 8.5.sp,
                 lineHeight = 9.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.62f),
                 maxLines = 1,
             )
             Text(
@@ -1295,11 +1336,11 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
             .clickableNoRipple { expanded = true }
             .animateContentSize(tween(durationMillis = 120)),
     ) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Rounded.Psychology,
@@ -1350,13 +1391,7 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
             onDismissRequest = { expanded = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { expanded = false }, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Rounded.ArrowBack,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(19.dp),
-                        )
-                    }
+                    DialogBackButton(onClick = { expanded = false })
                     Spacer(Modifier.width(4.dp))
                     Text("思考过程 · ${text.length} 字")
                 }
@@ -1530,11 +1565,11 @@ private fun ToolBlock(
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
             .clickableNoRipple { onOpen(part) }
             .animateContentSize(tween(durationMillis = 120)),
     ) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(toolIcon(part.name), contentDescription = null, modifier = Modifier.size(15.dp), tint = statusColor)
                 Spacer(Modifier.width(6.dp))
@@ -1803,13 +1838,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
             ) {
                 Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { closing = true }, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                Icons.Rounded.ArrowBack,
-                                contentDescription = "返回",
-                                modifier = Modifier.size(19.dp),
-                            )
-                        }
+                        DialogBackButton(onClick = { closing = true })
                         Spacer(Modifier.width(4.dp))
                         Icon(
                             toolIcon(part.name),

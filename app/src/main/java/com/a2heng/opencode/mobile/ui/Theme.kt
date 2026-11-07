@@ -141,6 +141,17 @@ fun rateColor(rate: Double, dark: Boolean): Color = when {
     else -> if (dark) Color(0xFFEF4444) else Color(0xFF991B1B)
 }
 
+/** 上下文占用：越低越好，绿 → 黄 → 红，多档渐变。 */
+fun contextUsageColor(pct: Double, dark: Boolean): Color = when {
+    pct < 25 -> if (dark) Color(0xFF4ADE80) else Color(0xFF17864A)
+    pct < 40 -> if (dark) Color(0xFFA3E635) else Color(0xFF4D7C0F)
+    pct < 55 -> if (dark) Color(0xFFFACC15) else Color(0xFF9A6700)
+    pct < 68 -> if (dark) Color(0xFFFBBF24) else Color(0xFFB45309)
+    pct < 80 -> if (dark) Color(0xFFFB923C) else Color(0xFFC2410C)
+    pct < 90 -> if (dark) Color(0xFFF87171) else Color(0xFFC0323D)
+    else -> if (dark) Color(0xFFEF4444) else Color(0xFF991B1B)
+}
+
 @Composable
 fun OcTheme(
     themeMode: String = "mono",

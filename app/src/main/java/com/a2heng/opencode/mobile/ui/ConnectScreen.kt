@@ -47,7 +47,12 @@ fun ConnectScreen(model: AppModel) {
     var password by rememberSaveable { mutableStateOf(model.password) }
     var showPassword by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()

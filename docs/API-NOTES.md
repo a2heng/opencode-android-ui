@@ -29,12 +29,26 @@
 
 ## 消息
 
-`GET /api/session/{id}/message` → `{ data: [...], cursor }`。
+`GET /api/session/{id}/message` → `{ data: [...], cursor: { previous, next } }`。
 
-> ⚠️ **返回顺序是「新的在前」**，客户端必须按 `time.created` 升序排一遍，否则聊天界面整个是倒的。
+> ⚠️ **默认只返回一页（50 条）**，且顺序是「新的在前」。客户端要按 `time.created` 升序排一遍再渲染。
+
+分页参数（以 `GET /openapi.json` 为准）：
+
+- `limit`：每页条数；不传用服务端默认值。官方前端首屏用 20（紧凑时间线 40）。
+- `order`：`desc`（新的在前，首屏用这个）/ `asc`；**只用于第一页**。
+- `cursor`：上一页响应里的不透明游标；往更早翻页时传 `cursor.next`，**不要和 `order` 同时用**。
+- `type`：按消息类型过滤后再分页；跟游标时要保持一致。
+
+推荐用法（与官方前端一致）：
+
+1. 首屏 `?limit=40&order=desc`，拿最新 40 条，记下 `cursor.next`。
+2. 滚动到顶部附近时 `?limit=40&cursor=<next>` 继续往更早翻，直到 `cursor.next` 为空。
+3. 事件刷新只重新拉最新一页（40 条），按 `id` 合并进已有列表；不要每次全量重拉。
+4. 需要完整历史（例如缓存统计）才循环 `cursor.next` 拉全量；官方前端单页上限用 200。
 
 消息 `type`：`user` / `assistant` / `system` / `synthetic` / `shell` / `skill` / `compaction` / `idle` /
-`agent-selected` / `model-selected` / `location-switched` 等。
+`agent-switched` / `model-switched` / `location-switched` 等。
 
 assistant 的 `content` 是 part 数组：
 
@@ -55,8 +69,8 @@ tokens：`{ input, output, reasoning, cache: { read, write } }`；
 { "text": "...", "delivery": "queue" }
 ```
 
-- `delivery`: `"steer"`（运行中直接插入）或 `"queue"`（空闲后处理）。**不传时由服务端决定**；
-  客户端在会话运行中按设置选择，默认 `queue`。
+- `delivery`: `"steer"`（运行中直接插入）或 `"queue"`（空闲后处理）。**不传时服务端默认 `steer`**（`input.delivery ?? "steer"`）；
+  本 App 在会话运行中按用户设置选择，默认也是 steer。
 - 队列查询：`GET /api/session/{id}/inbox`（`type: user` 的项就是待发送消息）
 - 取消队列项：`DELETE /api/session/{id}/inbox/{inboxID}`
 
@@ -94,7 +108,8 @@ data: {"id":"evt_...","created":...,"type":"session.text.delta","data":{...}}
 - `session.form.created|cancelled` / `form.created`
 - `session.compaction.started|ended`
 
-实现建议：文本/推理用 delta 追加；工具类事件节流后整表重拉消息（简单且不会错位）。
+实现建议：文本/推理用 delta 追加；工具类事件节流后**只重拉最新一页消息并按 id 合并**（官方前端也是这个思路），
+不要全量重拉整个会话。同一 key 的事件去抖 400~500ms，一次 burst 只发一次请求。
 
 ## 权限 / 表单
 

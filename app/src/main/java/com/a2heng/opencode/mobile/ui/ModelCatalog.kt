@@ -19,6 +19,8 @@ data class ModelEntry(
     val name: String,
     val providerID: String,
     val group: Int,
+    /** 思考强度（reasoning effort）可选值；为空表示这个模型没有档位。 */
+    val variants: List<String> = emptyList(),
 )
 
 fun modelGroupTitle(group: Int): String = when (group) {
@@ -42,6 +44,11 @@ fun modelDisplay(model: ModelRef?, groups: Map<String, Int>): String =
         "${sourcePrefix(group, it.providerID)} · ${it.label}"
     } ?: ""
 
+/** 思考强度的展示名；没有选档位（variant == null）就是 Default。 */
+fun variantLabel(variant: String?): String =
+    if (variant.isNullOrBlank() || variant == "default") "Default"
+    else variant.replaceFirstChar { it.uppercaseChar() }
+
 fun modelEntries(models: List<JsonObject>): List<ModelEntry> =
     models.mapNotNull { item ->
         val id = item.str("id") ?: return@mapNotNull null
@@ -59,5 +66,6 @@ fun modelEntries(models: List<JsonObject>): List<ModelEntry> =
             name = item.str("name") ?: id,
             providerID = provider,
             group = group,
+            variants = item.arr("variants").mapNotNull { (it as? JsonObject)?.str("id") },
         )
     }.sortedWith(compareBy<ModelEntry> { it.group }.thenBy { it.name.lowercase() })

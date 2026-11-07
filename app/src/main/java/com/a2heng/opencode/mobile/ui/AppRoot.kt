@@ -53,12 +53,24 @@ fun AppRoot(model: AppModel) {
         ConnectScreen(model)
         return
     }
-    // 会话页盖在列表上：预测式返回时整页滑走，露出下面的列表（真正的上一页）
+    // 会话页、缓存页都盖在列表上：预测式返回时整页滑走，露出下面的上一页（否则背景是黑的）
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         MainScreen(model)
         val current = model.current
         if (current != null) {
             ChatScreen(model, current)
+        }
+        val cache = model.cacheTarget
+        if (cache != null) {
+            SessionCacheScreen(
+                model = model,
+                session = cache,
+                onBack = { model.closeCache() },
+                onOpenChat = { session ->
+                    model.closeCache()
+                    model.openSession(session)
+                },
+            )
         }
     }
 }
@@ -77,20 +89,6 @@ private val tabs = listOf(
 fun MainScreen(model: AppModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showNewSession by rememberSaveable { mutableStateOf(false) }
-
-    val cache = model.cacheTarget
-    if (cache != null) {
-        SessionCacheScreen(
-            model = model,
-            session = cache,
-            onBack = { model.closeCache() },
-            onOpenChat = { session ->
-                model.closeCache()
-                model.openSession(session)
-            },
-        )
-        return
-    }
 
     Scaffold(
         topBar = {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.SessionInfo
@@ -318,23 +321,40 @@ private fun SessionRow(
                 },
             )
             .clickableNoRipple { model.openSession(session) }
-            .padding(horizontal = 10.dp, vertical = 11.dp),
+            .padding(start = 8.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val rate = session.tokens?.hitRate ?: 0.0
-        RateDot(rate, size = 8)
-        Spacer(Modifier.size(10.dp))
+        val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
+        val rateTint = if (rate <= 0.0) MaterialTheme.colorScheme.onSurfaceVariant else rateColor(rate, dark)
+        // 左：命中率按钮（整块可点，进入缓存页）
+        Surface(
+            color = rateTint.copy(alpha = 0.12f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.clickableNoRipple { onOpenCache(session) },
+        ) {
+            Text(
+                rateLabelSafe(rate),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = rateTint,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier
+                    .width(46.dp)
+                    .padding(vertical = 7.dp),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    session.shortTitle,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-            }
+            Text(
+                session.shortTitle,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(2.dp))
             Text(
                 buildList {
@@ -342,6 +362,7 @@ private fun SessionRow(
                     add(session.model?.let { modelDisplay(it, model.modelGroupById) }?.takeIf { it.isNotBlank() }
                         ?: session.agent.ifBlank { "—" })
                     session.tokens?.let { add(formatTokens(it.input + it.cacheRead) + " tok") }
+                    add(formatRelative(session.updated))
                 }.joinToString("  ·  "),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -350,26 +371,10 @@ private fun SessionRow(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Spacer(Modifier.size(8.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                formatRelative(session.updated),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                rateLabelSafe(rate),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .clickableNoRipple { onOpenCache(session) }
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            )
-        }
+        // 右：三个点（尽量紧凑，避免抢走命中率按钮的可点区域）
         Box {
-            IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Rounded.MoreVert, contentDescription = "更多", modifier = Modifier.size(18.dp))
+            IconButton(onClick = { menu = true }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "更多", modifier = Modifier.size(17.dp))
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(

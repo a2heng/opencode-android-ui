@@ -88,10 +88,18 @@ data class ModelRef(
         fun from(e: JsonElement?): ModelRef? {
             val o = e as? JsonObject ?: return null
             val id = o.str("id") ?: o.str("modelID") ?: return null
-            return ModelRef(id, o.str("providerID") ?: "", o.str("variant"))
+            // 服务端会把「默认档」写成 variant: "default"，统一归一成 null
+            val variant = o.str("variant")?.takeIf { it.isNotBlank() && it != "default" }
+            return ModelRef(id, o.str("providerID") ?: "", variant)
         }
     }
 }
+
+/** 一页消息 + 继续往更早翻的游标。 */
+data class MessagesPage(
+    val messages: List<Msg>,
+    val next: String?,
+)
 
 data class SessionInfo(
     val id: String = "",
@@ -371,7 +379,12 @@ data class CommandInfo(val name: String, val description: String)
 
 data class UpdateInfo(val tag: String, val pageUrl: String, val apkUrl: String?)
 
-data class ShellInfo(val id: String, val command: String, val status: String)
+data class ShellInfo(
+    val id: String,
+    val command: String,
+    val status: String,
+    val sessionID: String = "",
+)
 
 /** 通过 prompt 的 files 字段发送的图片（inline base64）。 */
 data class Attachment(val name: String, val mime: String, val base64: String)

@@ -132,8 +132,47 @@ class OcClient(rawBase: String, private val password: String) {
         unwrapObject(get("/api/session/$id"))?.let(SessionInfo::from)
 
     suspend fun messages(sessionID: String): List<Msg> =
-        unwrapArray(get("/api/session/$sessionID/message"))
-            .mapNotNull { (it as? JsonObject)?.let(::parseMessage) }
+        messagesPage(sessionID, limit = 200).messages
+
+    /**
+     * 分页读取消息（对齐官方前端的做法）：
+     * - 首屏 `order=desc, limit=20/40` 拿最新一页，响应里的 cursor.next 用来继续往更早翻；
+     * - 翻旧消息只带 cursor，不带 order。
+     */
+    suspend fun messagesPage(
+        sessionID: String,
+        limit: Int = 40,
+        order: String = "desc",
+        cursor: String? = null,
+    ): MessagesPage {
+        val query = buildString {
+            append("?limit=").append(limit)
+            if (cursor != null) {
+                append("&cursor=").append(java.net.URLEncoder.encode(cursor, "UTF-8"))
+            } else {
+                append("&order=").append(order)
+            }
+        }
+        val body = get("/api/session/$sessionID/message$query") as? JsonObject
+            ?: return MessagesPage(emptyList(), null)
+        val data = body.arr("data").mapNotNull { (it as? JsonObject)?.let(::parseMessage) }
+        val cursorObj = body.obj("cursor")
+        return MessagesPage(data, cursorObj?.str("next"))
+    }
+
+    /** 完整历史：从最新一页开始，按 cursor.next 一页页往前翻（上限 20 页，防死循环）。 */
+    suspend fun allMessages(sessionID: String, pageSize: Int = 200): List<Msg> {
+        val out = mutableListOf<Msg>()
+        var cursor: String? = null
+        var pages = 0
+        while (pages < 20) {
+            val page = messagesPage(sessionID, limit = pageSize, cursor = cursor)
+            out += page.messages
+            cursor = page.next ?: break
+            pages++
+        }
+        return out
+    }
 
     suspend fun prompt(
         sessionID: String,
@@ -197,6 +236,8 @@ class OcClient(rawBase: String, private val password: String) {
                 id = o.str("id") ?: return@mapNotNull null,
                 command = o.str("command") ?: "",
                 status = o.str("status") ?: "",
+                // ShellTool 会把来源会话放在 metadata.sessionID，用它在客户端按会话过滤悬浮球
+                sessionID = o.obj("metadata")?.str("sessionID") ?: "",
             )
         }
 

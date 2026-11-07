@@ -49,8 +49,10 @@ import kotlin.math.roundToInt
  * 数据来自 /api/shell（后台命令列表）与 /api/shell/{id}/output。
  */
 @Composable
-fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
-    if (model.shells.isEmpty()) return
+fun FloatingShells(model: AppModel, sessionID: String, modifier: Modifier = Modifier) {
+    // 只显示当前会话自己的后台 shell；别的会话在跑命令不在这里弹球
+    val shells = model.shells.filter { it.sessionID == sessionID }
+    if (shells.isEmpty()) return
 
     var expanded by remember { mutableStateOf(false) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -88,7 +90,7 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                         )
                     }
                 }
-                if (model.shells.size > 1) {
+                if (shells.size > 1) {
                     Surface(
                         color = MaterialTheme.colorScheme.error,
                         shape = CircleShape,
@@ -98,7 +100,7 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
-                                model.shells.size.toString(),
+                                shells.size.toString(),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onError,
@@ -134,7 +136,7 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                             tint = MaterialTheme.colorScheme.primary,
                         )
                         Text(
-                            "后台 shell · ${model.shells.size}",
+                            "后台 shell · ${shells.size}",
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier
                                 .padding(start = 6.dp)
@@ -154,7 +156,7 @@ fun FloatingShells(model: AppModel, modifier: Modifier = Modifier) {
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    model.shells.take(6).forEach { shell ->
+                    shells.take(6).forEach { shell ->
                         Row(
                             Modifier
                                 .fillMaxWidth()

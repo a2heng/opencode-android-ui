@@ -2,6 +2,8 @@ package com.a2heng.opencode.mobile.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,6 +79,14 @@ fun SessionCacheScreen(
         if (model.cacheDetail?.session?.id != session.id) model.loadCacheDetail(session)
     }
     var backProgress by remember { mutableFloatStateOf(0f) }
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val enterProgress by animateFloatAsState(
+        targetValue = if (entered) 0f else 1f,
+        animationSpec = tween(durationMillis = 260, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "cache-enter",
+    )
+    val motion = maxOf(backProgress, enterProgress)
     val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     if (backOwner != null) {
         PredictiveBackHandler { events ->
@@ -96,13 +107,13 @@ fun SessionCacheScreen(
 
     Scaffold(
         modifier = Modifier
-            .clip(RoundedCornerShape((34f * backProgress).dp))
+            .clip(RoundedCornerShape((34f * motion).dp))
             .graphicsLayer {
-                val scale = 1f - 0.14f * backProgress
+                // 不做淡化，只做预测式滑动；幅度加大
+                val scale = 1f - 0.10f * motion
                 scaleX = scale
                 scaleY = scale
-                translationX = size.width * 0.48f * backProgress
-                alpha = 1f - 0.20f * backProgress
+                translationX = size.width * 0.85f * motion
             },
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         topBar = {

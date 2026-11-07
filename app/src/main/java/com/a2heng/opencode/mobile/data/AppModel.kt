@@ -86,7 +86,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         run {
             val id = prefs.getString("default_model_id", "") ?: ""
             val provider = prefs.getString("default_model_provider", "") ?: ""
-            if (id.isBlank()) null else ModelRef(id, provider)
+            val variant = prefs.getString("default_model_variant", "")?.takeIf { it.isNotBlank() }
+            if (id.isBlank()) null else ModelRef(id, provider, variant)
         },
     )
         private set
@@ -171,6 +172,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var queue by mutableStateOf<List<Queued>>(emptyList())
         private set
+    /** 是否还能往更早翻页（服务端 cursor.next 非空）。 */
+    var hasOlderMessages by mutableStateOf(false)
+        private set
+    var loadingOlderMessages by mutableStateOf(false)
+        private set
+    private var olderCursor: String? = null
+    private data class CachedMessages(val messages: List<Msg>, val cursor: String?)
+    /** 每个打开过的会话的已加载消息，切回来不重新拉；最多 8 个。 */
+    private val sessionMessageCache = mutableMapOf<String, CachedMessages>()
     val queuedCount: Int get() = queue.size
     var lastError by mutableStateOf<String?>(null)
         private set
@@ -223,7 +233,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         cacheDetailError = null
         viewModelScope.launch {
             try {
-                val messages = withContext(Dispatchers.IO) { c.messages(session.id) }
+                val messages = withContext(Dispatchers.IO) { c.allMessages(session.id) }
                 cacheDetail = SessionCache(session, stepsOf(messages))
             } catch (e: Exception) {
                 cacheDetailError = e.message
@@ -380,6 +390,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         prefs.edit()
             .putString("default_model_id", model?.id ?: "")
             .putString("default_model_provider", model?.providerID ?: "")
+            .putString("default_model_variant", model?.variant ?: "")
             .apply()
     }
 
@@ -503,9 +514,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 val (list, active) = withContext(Dispatchers.IO) {
                     c.sessionList() to c.activeSessionIds()
                 }
-                sessions = list.sortedByDescending { it.updated }
+                sessions = list.sortedByDescending { it.updated }.map { fresh ->
+                    val old = sessions.firstOrNull { it.id == fresh.id }
+                    if (fresh.model == null && old?.model != null) fresh.copy(model = old.model) else fresh
+                }
                 activeIds = active
-                current?.let { cur -> sessions.firstOrNull { it.id == cur.id }?.let { current = it } }
+                current?.let { cur ->
+                    sessions.firstOrNull { it.id == cur.id }?.let { fresh ->
+                        current = if (fresh.model == null && cur.model != null) fresh.copy(model = cur.model) else fresh
+                    }
+                }
                 openSessions = openSessions.map { old ->
                     sessions.firstOrNull { it.id == old.id } ?: old
                 }
@@ -518,25 +536,59 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openSession(session: SessionInfo) {
+        current?.let { prev -> if (prev.id != session.id) saveMessageCache(prev.id) }
         current = session
-        openSessions = (listOf(session) + openSessions.filterNot { it.id == session.id }).take(6)
-        messages = emptyList()
+        openSessions = (listOf(session) + openSessions.filterNot { it.id == session.id }).take(20)
+        val cached = sessionMessageCache[session.id]
+        messages = cached?.messages ?: emptyList()
+        olderCursor = cached?.cursor
+        hasOlderMessages = olderCursor != null
+        loadingOlderMessages = false
         liveText = ""
         liveReasoning = ""
         sending = isActive(session.id)
         queue = emptyList()
         lastError = null
-        loadMessages()
+        // 有缓存就先显示，再静默刷新最新一页（只拉最新 40 条）
+        loadMessages(silent = cached != null)
         loadForms(session.id)
         loadInbox()
     }
 
     fun closeSession() {
+        saveMessageCache(current?.id)
         current = null
         messages = emptyList()
+        olderCursor = null
+        hasOlderMessages = false
+        loadingOlderMessages = false
         liveText = ""
         liveReasoning = ""
         forms = emptyList()
+    }
+
+    private fun saveMessageCache(id: String?) {
+        if (id.isNullOrBlank()) return
+        sessionMessageCache[id] = CachedMessages(messages, olderCursor)
+        if (sessionMessageCache.size > 8) {
+            val victim = sessionMessageCache.keys.firstOrNull { it != current?.id } ?: return
+            sessionMessageCache.remove(victim)
+        }
+    }
+
+    /** 关闭「打开的会话」里的一个：如果是当前会话，就切到下一个，没有就回到列表。 */
+    fun closeOpenSession(id: String) {
+        openSessions = openSessions.filterNot { it.id == id }
+        if (current?.id == id) {
+            val next = openSessions.firstOrNull()
+            if (next != null) openSession(next) else closeSession()
+        }
+    }
+
+    /** 退出多会话切换状态：全部关掉，回到会话列表。 */
+    fun closeAllOpenSessions() {
+        openSessions = emptyList()
+        closeSession()
     }
 
     fun loadMessages(silent: Boolean = false) {
@@ -545,14 +597,68 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             if (!silent) messagesLoading = true
             try {
-                val list = withContext(Dispatchers.IO) { c.messages(s.id) }
-                messages = collapseMessages(list)
+                // 只拉最新一页（官方前端也是 20~40 条一页），再按 id 合并，
+                // 不会因为一次工具事件就重拉整个会话。
+                val page = withContext(Dispatchers.IO) {
+                    c.messagesPage(s.id, limit = 40, order = "desc")
+                }
+                if (current?.id != s.id) return@launch
+                val fresh = collapseMessages(page.messages)
+                val freshIds = fresh.map { it.id }.toHashSet()
+                val merged = (fresh + messages.filterNot { it.id in freshIds }).sortedBy { it.created }
+                messages = merged
+                if (olderCursor == null || merged.size == fresh.size) {
+                    olderCursor = page.next
+                }
+                hasOlderMessages = olderCursor != null
                 liveText = ""
                 liveReasoning = ""
+                // 服务端没给会话存 model 时，从最后一条 assistant 消息里回填，
+                // 这样标题胶囊和会话列表的模型前缀都能显示出来。
+                if (current?.model == null) {
+                    merged.lastOrNull { it.isAssistant && it.model != null }?.model?.let { m ->
+                        current?.let { cur ->
+                            current = cur.copy(model = m)
+                            sessions = sessions.map { if (it.id == cur.id) it.copy(model = m) else it }
+                            openSessions = openSessions.map { if (it.id == cur.id) it.copy(model = m) else it }
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 if (!silent) lastError = e.message
             } finally {
                 messagesLoading = false
+            }
+        }
+    }
+
+    /** 往更早翻一页（滚动到消息列表顶部时调用）。 */
+    fun loadOlderMessages() {
+        if (loadingOlderMessages || !hasOlderMessages) return
+        val c = client ?: return
+        val s = current ?: return
+        val cursor = olderCursor ?: return
+        loadingOlderMessages = true
+        viewModelScope.launch {
+            try {
+                val page = withContext(Dispatchers.IO) {
+                    c.messagesPage(s.id, limit = 40, cursor = cursor)
+                }
+                if (current?.id != s.id) return@launch
+                val incoming = collapseMessages(page.messages)
+                if (incoming.isEmpty()) {
+                    olderCursor = null
+                    hasOlderMessages = false
+                    return@launch
+                }
+                val ids = messages.map { it.id }.toHashSet()
+                messages = (incoming.filterNot { it.id in ids } + messages).sortedBy { it.created }
+                olderCursor = page.next
+                hasOlderMessages = page.next != null
+            } catch (e: Exception) {
+                lastError = e.message
+            } finally {
+                loadingOlderMessages = false
             }
         }
     }
@@ -586,14 +692,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             try {
                 when (mode) {
                     "queue" -> {
+                        // 排队 / 引导都不改动 statusLine：用户已经知道消息进了队列，
+                        // 覆盖掉正在思考 / 正在使用工具的真实状态只会更乱。
                         withContext(Dispatchers.IO) { c.prompt(s.id, bodyText, "queue", attachments) }
-                        statusLine = "已加入队列"
                         delay(300)
                         loadInbox()
                     }
                     "steer" -> {
                         withContext(Dispatchers.IO) { c.prompt(s.id, bodyText, "steer", attachments) }
-                        statusLine = "已插入当前回答"
                     }
                     "interrupt" -> {
                         withContext(Dispatchers.IO) {
@@ -632,13 +738,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 when (mode) {
                     "queue" -> {
                         withContext(Dispatchers.IO) { c.runCommand(s.id, name, text, "queue", attachments) }
-                        statusLine = "命令已加入队列"
                         delay(300)
                         loadInbox()
                     }
                     "steer" -> {
                         withContext(Dispatchers.IO) { c.runCommand(s.id, name, text, "steer", attachments) }
-                        statusLine = "命令已插入"
                     }
                     "interrupt" -> {
                         withContext(Dispatchers.IO) {
@@ -678,9 +782,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val withdrawnQueueIds = mutableSetOf<String>()
+
+    /** 队列项是不是用户主动撤回的（撤回就不要做 pending→消息的 morph 动画）。 */
+    fun consumeWithdrawn(id: String): Boolean = withdrawnQueueIds.remove(id)
+
     fun cancelQueued(id: String) {
         val c = client ?: return
         val s = current ?: return
+        withdrawnQueueIds += id
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { c.cancelInbox(s.id, id) }
@@ -696,6 +806,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         val s = current ?: return
         val item = queue.firstOrNull { it.id == id } ?: return
+        withdrawnQueueIds += id
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { c.cancelInbox(s.id, id) }
@@ -804,6 +915,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { c.deleteSession(id) }
+                openSessions = openSessions.filterNot { it.id == id }
                 if (current?.id == id) closeSession()
                 refreshSessions()
             } catch (e: Exception) {

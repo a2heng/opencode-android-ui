@@ -1,6 +1,7 @@
 package com.a2heng.opencode.mobile.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,8 +18,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.a2heng.opencode.mobile.data.AppModel
 
@@ -58,41 +63,81 @@ fun SettingsScreen(model: AppModel) {
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                LabelValue("服务器", model.serverUrl)
-                LabelValue("服务端版本", if (model.serverVersion.isBlank()) "未知" else "v${model.serverVersion}")
-                LabelValue("认证", if (model.password.isBlank()) "无密码" else "Basic · opencode")
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LabelValue("服务器", model.serverUrl)
+                    LabelValue("服务端版本", if (model.serverVersion.isBlank()) "未知" else "v${model.serverVersion}")
+                    LabelValue("认证", if (model.password.isBlank()) "无密码" else "Basic · opencode")
+                }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = { model.disconnect() }) {
+                    Icon(
+                        Icons.Rounded.Logout,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("断开连接", color = MaterialTheme.colorScheme.error)
+                }
             }
         }
 
         Spacer(Modifier.height(8.dp))
         Text("默认模型", style = MaterialTheme.typography.titleSmall)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickableNoRipple {
-                    model.loadMeta()
-                    showModelPicker = true
-                }
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    model.defaultModel?.let { modelDisplay(it, model.modelGroupById) }
-                        ?: model.serverDefaultModel?.let {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickableNoRipple {
+                        model.loadMeta()
+                        showModelPicker = true
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Rounded.Tune,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("选择模型", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        model.defaultModel?.let {
+                            modelDisplay(it, model.modelGroupById) + " · " + variantLabel(it.variant)
+                        } ?: model.serverDefaultModel?.let {
                             "服务器默认 · " + modelDisplay(it, model.modelGroupById)
-                        }
-                        ?: "服务器默认",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    "新建会话使用",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        } ?: "服务器默认",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
+                Icon(
+                    Icons.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            Text("选择", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -220,17 +265,6 @@ fun SettingsScreen(model: AppModel) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = { model.disconnect() }) {
-            Icon(
-                Icons.Rounded.Logout,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.error,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text("断开连接", color = MaterialTheme.colorScheme.error)
-        }
         Spacer(Modifier.height(24.dp))
     }
 

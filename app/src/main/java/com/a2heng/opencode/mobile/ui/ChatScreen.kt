@@ -176,12 +176,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var openMenu by remember { mutableStateOf(false) }
     var confirmStop by remember { mutableStateOf(false) }
     var backProgress by remember { mutableFloatStateOf(0f) }
-    var screenReady by remember(session.id) { mutableStateOf(false) }
-    LaunchedEffect(session.id) {
-        screenReady = false
-        kotlinx.coroutines.delay(600)
-        screenReady = true
-    }
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val enterProgress by animateFloatAsState(
@@ -243,12 +237,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     val pendingPermissions = model.permissions.filter { it.sessionID == session.id }
-    // 只给「当前正在跑的这一轮」的工具做出现动画；往上翻历史时不要再一个个展开
-    val animateToolsFor = if (screenReady && model.sending) {
-        model.messages.lastOrNull { it.isAssistant }?.id
-    } else {
-        null
-    }
     val pendingForms = model.forms.filter { it.sessionID == session.id }
     // 通过 API 新建的会话在服务端没有 model 字段，从最后一条 assistant 消息里补
     val effectiveModel = session.model ?: model.messages.lastOrNull { it.model != null }?.model
@@ -526,7 +514,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                         msg = msg,
                                         detail = model.detailLevel,
                                         baseDir = session.directory,
-                                        animateAppear = animateToolsFor == msg.id,
                                         onBackground = { model.backgroundCurrent() },
                                         onLongPressUser = { revertTarget = it },
                                         onOpenTool = { detailTool = it },
@@ -1166,7 +1153,6 @@ private fun MessageItem(
     msg: Msg,
     detail: String,
     baseDir: String = "",
-    animateAppear: Boolean = false,
     onBackground: () -> Unit = {},
     onLongPressUser: (Msg) -> Unit = {},
     onOpenTool: (Part.Tool) -> Unit = {},
@@ -1204,28 +1190,7 @@ private fun MessageItem(
         msg.parts.forEach { part ->
             when (part) {
                 is Part.Reasoning -> ReasoningBlock(part.text, detail)
-                is Part.Tool -> {
-                    if (detail == "compact") {
-                        // 精简模式是一行一行的平铺，不做展开/淡入动画，避免卡顿
-                        ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
-                    } else {
-                        var appeared by remember(part.toolID) { mutableStateOf(!animateAppear) }
-                        LaunchedEffect(part.toolID) { appeared = true }
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = appeared,
-                            enter = androidx.compose.animation.expandVertically(
-                                animationSpec = tween(durationMillis = 140),
-                                expandFrom = Alignment.Top,
-                            ) + androidx.compose.animation.fadeIn(tween(durationMillis = 100)),
-                            exit = androidx.compose.animation.shrinkVertically(
-                                animationSpec = tween(durationMillis = 110),
-                                shrinkTowards = Alignment.Top,
-                            ) + androidx.compose.animation.fadeOut(tween(durationMillis = 80)),
-                        ) {
-                            ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
-                        }
-                    }
-                }
+                is Part.Tool -> ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
                 is Part.Text -> AssistantText(part.text)
             }
         }

@@ -102,9 +102,9 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - diff 每行 `fontSize = 10.sp` 时必须显式 `lineHeight = 12.sp`（默认 body 行高会虚高），行间 padding 0.5dp。详情弹窗的圆角只加在**外层卡片**（工具详情 16dp、AppDialog 18dp，不用设备 R 角），内部滚动内容不要再单独裁 R 角。
 - Markdown：自己实现的渲染器要支持标题 `#`、列表（`-`/`*`/`+`/数字，显示为 • / 数字）、引用 `>`、分隔线 `---`、竖线表格（带网格线），以及行内 code/粗体/斜体/链接；最终回答和思考详情都要用 `MarkdownText`。展开后的字号要和卡片预览一致（工具 10.5sp；思考详情用 compact Markdown 11sp），别放大导致要滚很多屏。
 - 精简模式也要有一行「思考」（图标 + 思考 + 字数 + 展开），点开看完整思考。
-- 只有「当前正在运行的最后一轮」的新工具才做出现动画；往上翻历史消息时不要再逐个展开动画（否则滚动时卡片会从矮变高）。
+- 工具卡片和思考一样**直接出现**，不要 `AnimatedVisibility` 的展开/滑入动画（滚动或新工具都不要）；只有消息 item 保留轻微淡入。
 - 消息合并必须 `collapseMessages(page.messages).asReversed()` 后再拼接，**不要 `sortedBy { created }`**；否则队列消息的入队时间会把上一轮工具挤到 pending 后面。
-- 新消息 item 只用 `animateItem` 的 `fadeIn/fadeOut`，**不要 placementSpec**（滚动时位置动画会造成“一点点错位”的抖动）；新工具块在完整模式下用 140ms 展开，精简模式不做展开动画。
+- 新消息 item 只用 `animateItem` 的 `fadeIn/fadeOut`，**不要 placementSpec**（滚动时位置动画会造成“一点点错位”的抖动）；工具块本身不再做任何展开/滑入动画。
 - Pending 薄行按**旧→新**从上到下排列（新的在最下面），最多 150dp 高。
 - 正文仍是单列：用户气泡靠右，助手内容和工具靠左（不要做左右分栏或左右气泡，用户已确认没有必要）。
 

@@ -783,15 +783,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val withdrawnQueueIds = mutableSetOf<String>()
-
-    /** 队列项是不是用户主动撤回的（撤回就不要做 pending→消息的 morph 动画）。 */
-    fun consumeWithdrawn(id: String): Boolean = withdrawnQueueIds.remove(id)
-
     fun cancelQueued(id: String) {
         val c = client ?: return
         val s = current ?: return
-        withdrawnQueueIds += id
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { c.cancelInbox(s.id, id) }
@@ -807,7 +801,6 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         val s = current ?: return
         val item = queue.firstOrNull { it.id == id } ?: return
-        withdrawnQueueIds += id
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { c.cancelInbox(s.id, id) }

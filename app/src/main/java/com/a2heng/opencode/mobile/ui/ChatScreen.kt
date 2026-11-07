@@ -13,7 +13,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
@@ -48,6 +47,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
@@ -108,7 +108,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -141,7 +140,6 @@ import com.a2heng.opencode.mobile.data.FormInfo
 import com.a2heng.opencode.mobile.data.Msg
 import com.a2heng.opencode.mobile.data.Part
 import com.a2heng.opencode.mobile.data.PermissionReq
-import com.a2heng.opencode.mobile.data.Queued
 import com.a2heng.opencode.mobile.data.SessionInfo
 import com.a2heng.opencode.mobile.data.formatCost
 import com.a2heng.opencode.mobile.data.formatTokens
@@ -172,9 +170,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     var showFilePicker by remember { mutableStateOf(false) }
     var openMenu by remember { mutableStateOf(false) }
     var confirmStop by remember { mutableStateOf(false) }
-    var morph by remember { mutableStateOf<PendingMorph?>(null) }
-    var prevQueue by remember { mutableStateOf<List<Queued>>(emptyList()) }
-    var queueSession by remember { mutableStateOf(session.id) }
     var backProgress by remember { mutableFloatStateOf(0f) }
     var screenReady by remember(session.id) { mutableStateOf(false) }
     LaunchedEffect(session.id) {
@@ -192,19 +187,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     val motion = maxOf(backProgress, enterProgress)
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val pendingTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pending-clock")
-    val pendingPhase by pendingTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 4f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(
-                durationMillis = 2400,
-                easing = androidx.compose.animation.core.LinearEasing,
-            ),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
-        ),
-        label = "pending-phase",
-    )
     val context = LocalContext.current
     val attachments = remember { mutableStateListOf<Attachment>() }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -235,8 +217,13 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     // 发出 pending / 新消息后回到最底部（reverseLayout 的 0 就是底部）
+    // 只在队列变多时滚到底，队列被取走/撤回时不要来回跳
+    var lastQueueSize by remember(session.id) { mutableStateOf(0) }
     LaunchedEffect(model.queue.size) {
-        if (model.queue.isNotEmpty()) listState.animateScrollToItem(0)
+        if (model.queue.size > lastQueueSize && model.queue.isNotEmpty()) {
+            listState.animateScrollToItem(0)
+        }
+        lastQueueSize = model.queue.size
     }
 
     // 滚动到最上面（reverseLayout 的末尾）时，继续往更早翻一页
@@ -247,52 +234,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         }.collect { (last, total) ->
             if (total > 0 && last >= total - 4) model.loadOlderMessages()
         }
-    }
-
-    // 队列项消失有两种：被服务端取走（变成真正的消息）或用户撤回。前者做 morph 动画。
-    LaunchedEffect(model.queue, session.id) {
-        // 切会话时不要把上一个会话的队列当成「刚消失」
-        if (queueSession != session.id) {
-            queueSession = session.id
-            prevQueue = model.queue
-            morph = null
-            return@LaunchedEffect
-        }
-        val now = model.queue
-        val removed = prevQueue.filterNot { old -> now.any { it.id == old.id } }
-        prevQueue = now
-        removed.lastOrNull()?.let { item ->
-            // steer 会被直接插进当前回答，不会变成独立的用户消息，不能做 morph
-            if (!model.consumeWithdrawn(item.id) && item.delivery != "steer") {
-                morph = PendingMorph(item.text)
-            }
-        }
-    }
-    val morphMsg = morph?.let { m ->
-        model.messages.lastOrNull { it.isUser && it.text == m.text }
-    }
-    var morphForced by remember(morph) { mutableStateOf(false) }
-    LaunchedEffect(morph) {
-        if (morph != null) {
-            kotlinx.coroutines.delay(1200)
-            morphForced = true
-        }
-    }
-    val visibleMessages = remember(model.messages, morphMsg?.id) {
-        if (morphMsg == null) model.messages else model.messages.filterNot { it.id == morphMsg.id }
-    }
-
-    // 临时调试：复现「工具先出现在 Pending 下面再跳上去」时，把列表顺序和工具状态打到 logcat（tag OCUI）
-    LaunchedEffect(model.queue, model.messages, morph?.text, morphMsg?.id, model.sending) {
-        val last = model.messages.takeLast(3).map { m ->
-            val tools = m.parts.filterIsInstance<Part.Tool>().joinToString(",") { it.name + ":" + it.status }
-            "${m.role}(${m.id.takeLast(4)}${if (tools.isNotEmpty()) " $tools" else ""})"
-        }
-        android.util.Log.d(
-            "OCUI",
-            "queue=${model.queue.map { it.text.take(8) + ":" + it.delivery }} morph=${morph?.text?.take(8)} " +
-                "morphMsg=${morphMsg?.id?.takeLast(4)} sending=${model.sending} last=$last",
-        )
     }
 
     val pendingPermissions = model.permissions.filter { it.sessionID == session.id }
@@ -521,100 +462,80 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                     CircularProgressIndicator(strokeWidth = 2.dp)
                 }
             } else {
-                Box(Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        reverseLayout = true,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            if (model.detailLevel == "compact") 8.dp else 12.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(
-                            if (model.detailLevel == "compact") 4.dp else 10.dp,
-                        ),
-                    ) {
-                        if (model.queue.isNotEmpty()) {
-                            // 队列统一作为底部一个稳定区域，避免每条 pending 增删时整段重排
-                            item(key = "pending-area") {
-                                Column(
-                                    Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                // 瀑布流和 Pending 分开：Pending 固定在输入框上方，不参与消息列表滚动
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            reverseLayout = true,
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                if (model.detailLevel == "compact") 8.dp else 12.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(
+                                if (model.detailLevel == "compact") 4.dp else 10.dp,
+                            ),
+                        ) {
+                            if (model.liveReasoning.isNotBlank() || model.liveText.isNotBlank() || model.sending) {
+                                item(key = "live") {
+                                    LiveBubble(model, model.detailLevel)
+                                }
+                            }
+                            items(model.messages.asReversed(), key = { it.id }) { msg ->
+                                Box(
+                                    Modifier
+                                        .animateItem(
+                                            fadeInSpec = tween(120),
+                                            placementSpec = null,
+                                            fadeOutSpec = tween(100),
+                                        )
+                                        .clipToBounds(),
                                 ) {
-                                    model.queue.forEach { item ->
-                                        key(item.id) {
-                                            PendingBubble(item.text, pendingPhase) {
-                                                model.withdrawQueued(item.id) { restored -> input = restored }
-                                            }
-                                        }
+                                    MessageItem(
+                                        msg = msg,
+                                        detail = model.detailLevel,
+                                        baseDir = session.directory,
+                                        animateAppear = screenReady,
+                                        onLongPressUser = { revertTarget = it },
+                                        onOpenTool = { detailTool = it },
+                                    )
+                                }
+                            }
+                            if (model.loadingOlderMessages) {
+                                item(key = "older-loading") {
+                                    Box(
+                                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                        )
                                     }
                                 }
                             }
                         }
-                        if (model.liveReasoning.isNotBlank() || model.liveText.isNotBlank() || model.sending) {
-                            item(key = "live") {
-                                LiveBubble(model, model.detailLevel)
-                            }
-                        }
-                        // 排队项被服务端取走时，先在原位 morph 成用户消息，再让真正的消息接管
-                        morph?.let { m ->
-                            item(key = "morph") {
-                                MorphingUserBubble(
-                                    text = m.text,
-                                    started = morphMsg != null || morphForced,
-                                    detail = model.detailLevel,
-                                    phase = pendingPhase,
-                                ) { morph = null }
-                            }
-                        }
-                        items(visibleMessages.asReversed(), key = { it.id }) { msg ->
-                            Box(
-                                Modifier.animateItem(
-                                    fadeInSpec = tween(180),
-                                    placementSpec = tween(220),
-                                    fadeOutSpec = tween(150),
-                                ),
+                        if (listState.firstVisibleItemIndex > 2) {
+                            SmallScrollToBottom(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 12.dp),
                             ) {
-                                MessageItem(
-                                    msg = msg,
-                                    detail = model.detailLevel,
-                                    baseDir = session.directory,
-                                    animateAppear = screenReady,
-                                    onLongPressUser = { revertTarget = it },
-                                    onOpenTool = { detailTool = it },
-                                )
+                                scope.launch { listState.animateScrollToItem(0) }
                             }
                         }
-                        if (model.loadingOlderMessages) {
-                            item(key = "older-loading") {
-                                Box(
-                                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                    )
-                                }
-                            }
+                        if (model.shells.any { it.sessionID == session.id }) {
+                            FloatingShells(
+                                model = model,
+                                sessionID = session.id,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 12.dp, bottom = 70.dp),
+                            )
                         }
                     }
-                    if (listState.firstVisibleItemIndex > 2) {
-                        SmallScrollToBottom(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 12.dp),
-                        ) {
-                            scope.launch { listState.animateScrollToItem(0) }
-                        }
-                    }
-                    if (model.shells.any { it.sessionID == session.id }) {
-                        FloatingShells(
-                            model = model,
-                            sessionID = session.id,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(end = 12.dp, bottom = 70.dp),
-                        )
+                    if (model.queue.isNotEmpty()) {
+                        PendingRows(model) { restored -> input = restored }
                     }
                 }
             }
@@ -1224,20 +1145,25 @@ private fun MessageItem(
             when (part) {
                 is Part.Reasoning -> ReasoningBlock(part.text, detail)
                 is Part.Tool -> {
-                    var appeared by remember(part.toolID) { mutableStateOf(!animateAppear) }
-                    LaunchedEffect(part.toolID) { appeared = true }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = appeared,
-                        enter = androidx.compose.animation.expandVertically(
-                            animationSpec = tween(durationMillis = 140),
-                            expandFrom = Alignment.Top,
-                        ) + androidx.compose.animation.fadeIn(tween(durationMillis = 100)),
-                        exit = androidx.compose.animation.shrinkVertically(
-                            animationSpec = tween(durationMillis = 110),
-                            shrinkTowards = Alignment.Top,
-                        ) + androidx.compose.animation.fadeOut(tween(durationMillis = 80)),
-                    ) {
+                    if (detail == "compact") {
+                        // 精简模式是一行一行的平铺，不做展开/淡入动画，避免卡顿
                         ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir)
+                    } else {
+                        var appeared by remember(part.toolID) { mutableStateOf(!animateAppear) }
+                        LaunchedEffect(part.toolID) { appeared = true }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = appeared,
+                            enter = androidx.compose.animation.expandVertically(
+                                animationSpec = tween(durationMillis = 140),
+                                expandFrom = Alignment.Top,
+                            ) + androidx.compose.animation.fadeIn(tween(durationMillis = 100)),
+                            exit = androidx.compose.animation.shrinkVertically(
+                                animationSpec = tween(durationMillis = 110),
+                                shrinkTowards = Alignment.Top,
+                            ) + androidx.compose.animation.fadeOut(tween(durationMillis = 80)),
+                        ) {
+                            ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir)
+                        }
                     }
                 }
                 is Part.Text -> AssistantText(part.text)
@@ -2004,177 +1930,59 @@ private fun LiveBubble(model: AppModel, detail: String) {
     }
 }
 
-private data class PendingMorph(val text: String)
-
-/**
- * 排队消息被取走时的过渡：保持同一位置，只把底部 pending 行高度收掉，
- * 同时颜色从 pending 灰底渐变到用户气泡色，最后交给真正的消息。
- */
 @Composable
-private fun MorphingUserBubble(
-    text: String,
-    started: Boolean,
-    detail: String,
-    phase: Float,
-    onDone: () -> Unit,
-) {
-    var begun by remember { mutableStateOf(false) }
-    LaunchedEffect(started) {
-        if (started) {
-            // 先让上一条助手消息的收尾动画/重排落定，再做 pending → 消息的 morph
-            kotlinx.coroutines.delay(220)
-            begun = true
-        }
-    }
-    val progress by animateFloatAsState(
-        targetValue = if (begun) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = 380,
-            easing = androidx.compose.animation.core.FastOutSlowInEasing,
-        ),
-        label = "pending-morph",
-    )
-    LaunchedEffect(begun) {
-        if (begun) {
-            kotlinx.coroutines.delay(430)
-            onDone()
-        }
-    }
-
-    val pendingBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-    val userBg = MaterialTheme.colorScheme.primaryContainer
-    val bg = androidx.compose.ui.graphics.lerp(pendingBg, userBg, progress)
-    val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f * (1f - progress))
-    val textColor = androidx.compose.ui.graphics.lerp(
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
-        MaterialTheme.colorScheme.onPrimaryContainer,
-        progress,
-    )
-    val hPad = androidx.compose.ui.unit.lerp(12.dp, if (detail == "compact") 10.dp else 13.dp, progress)
-    val vPad = androidx.compose.ui.unit.lerp(7.dp, if (detail == "compact") 6.dp else 9.dp, progress)
-
-    Row(
+private fun PendingRows(model: AppModel, onWithdraw: (String) -> Unit) {
+    Column(
         Modifier
             .fillMaxWidth()
-            .padding(start = 28.dp * (1f - progress)),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically,
+            .heightIn(max = 150.dp)
+            .animateContentSize(tween(durationMillis = 100))
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // 撤回按钮也一起收起，避免横向位置跳变
-        Box(
-            Modifier
-                .size(40.dp * (1f - progress))
-                .alpha(1f - progress),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (progress < 0.99f) {
-                Icon(
-                    androidx.compose.ui.res.painterResource(com.a2heng.opencode.mobile.R.drawable.ic_return_horizontal),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-        }
-        Surface(
-            color = bg,
-            shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-            modifier = Modifier.widthIn(
-                max = androidx.compose.ui.unit.lerp(300.dp, 330.dp, progress),
-            ),
-        ) {
-            Column(Modifier.padding(horizontal = hPad, vertical = vPad)) {
-                Text(
-                    text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = textColor,
-                )
-                // 只收掉这一行：高度 + 透明度一起走
-                Box(Modifier.fillMaxWidth().height(18.dp * (1f - progress))) {
-                    if (progress < 0.99f) {
-                        Row(
-                            Modifier.alpha(1f - progress),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "pending",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                            )
-                            AnimatedEllipsis(phase)
-                        }
+        model.queue.forEach { item ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = { model.withdrawQueued(item.id) { restored -> onWithdraw(restored) } },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            androidx.compose.ui.res.painterResource(com.a2heng.opencode.mobile.R.drawable.ic_return_horizontal),
+                            contentDescription = "撤回编辑",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    Text(
+                        item.text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = { model.cancelQueued(item.id) },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "移除",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp),
+                        )
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PendingBubble(text: String, phase: Float, onWithdraw: () -> Unit) {
-    val haptics = LocalHapticFeedback.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 28.dp),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onWithdraw()
-            },
-            modifier = Modifier.size(40.dp),
-        ) {
-            Icon(
-                androidx.compose.ui.res.painterResource(com.a2heng.opencode.mobile.R.drawable.ic_return_horizontal),
-                contentDescription = "撤回编辑",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-            shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-            ),
-            modifier = Modifier.widthIn(max = 300.dp),
-        ) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
-                Text(
-                    text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "pending",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                    )
-                    AnimatedEllipsis(phase)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AnimatedEllipsis(phase: Float) {
-    val step = phase.toInt().coerceIn(0, 3)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { index ->
-            Text(
-                ".",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                    alpha = if (index < step) 0.9f else 0.08f,
-                ),
-            )
         }
     }
 }

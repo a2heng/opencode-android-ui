@@ -1875,7 +1875,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                     .fillMaxWidth()
                     .widthIn(max = 720.dp),
             ) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         DialogBackButton(onClick = { closing = true })
                         Spacer(Modifier.width(4.dp))
@@ -1914,7 +1914,8 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                         Modifier
                             .heightIn(max = 680.dp)
                             .verticalScroll(rememberScrollState())
-                            .padding(vertical = 4.dp),
+                            .padding(vertical = 6.dp)
+                            .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)),
                     ) {
                         if (isReadTool) {
                             if (readBody.isNotBlank()) {

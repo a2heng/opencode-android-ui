@@ -42,6 +42,7 @@ fun AppDialog(
     outerTopPadding: androidx.compose.ui.unit.Dp = 32.dp,
     outerBottomPadding: androidx.compose.ui.unit.Dp = 32.dp,
     maxContentHeight: androidx.compose.ui.unit.Dp = 500.dp,
+    titleSpacing: androidx.compose.ui.unit.Dp = 16.dp,
 ) {
     var backProgress by remember { mutableFloatStateOf(0f) }
     val deviceCorner = rememberDeviceCornerRadius()

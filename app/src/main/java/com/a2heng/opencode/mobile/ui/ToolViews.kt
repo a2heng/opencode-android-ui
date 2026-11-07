@@ -123,12 +123,13 @@ fun DiffView(diff: String) {
                 line.ifEmpty { " " },
                 fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
+                lineHeight = 12.sp,
                 color = color,
                 softWrap = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(bg)
-                    .padding(horizontal = 8.dp, vertical = 1.dp),
+                    .padding(horizontal = 8.dp, vertical = 0.5.dp),
             )
         }
     }

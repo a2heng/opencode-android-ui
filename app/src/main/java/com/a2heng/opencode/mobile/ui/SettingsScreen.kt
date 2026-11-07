@@ -80,7 +80,10 @@ fun SettingsScreen(model: AppModel) {
             Column(Modifier.weight(1f)) {
                 Text(
                     model.defaultModel?.let { modelDisplay(it, model.modelGroupById) }
-                        ?: "未指定（跟随服务端）",
+                        ?: model.serverDefaultModel?.let {
+                            "服务器默认 · " + modelDisplay(it, model.modelGroupById)
+                        }
+                        ?: "服务器默认",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
@@ -232,59 +235,18 @@ fun SettingsScreen(model: AppModel) {
     }
 
     if (showModelPicker) {
-        ModalBottomSheet(onDismissRequest = { showModelPicker = false }) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.8f)
-                    .padding(horizontal = 16.dp),
-            ) {
-                Text("默认模型", style = MaterialTheme.typography.titleMedium)
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickableNoRipple {
-                            model.updateDefaultModel(null)
-                            showModelPicker = false
-                        }
-                        .padding(vertical = 12.dp),
-                ) {
-                    Text("不指定（跟随服务端）", style = MaterialTheme.typography.bodyMedium)
-                }
-                HorizontalDivider()
-                LazyColumn(Modifier.weight(1f)) {
-                    items(modelEntries(model.models)) { entry ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickableNoRipple {
-                                    model.updateDefaultModel(entry.ref)
-                                    showModelPicker = false
-                                }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(entry.name, style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "${sourcePrefix(entry.group, entry.providerID)} · ${entry.ref.id}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (model.defaultModel?.id == entry.ref.id) {
-                                Text(
-                                    "当前",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-        }
+        val noneLabel = model.serverDefaultModel?.let {
+            "服务器默认（${modelDisplay(it, model.modelGroupById)}）"
+        } ?: "服务器默认"
+        ModelPickerSheet(
+            model = model,
+            title = "默认模型",
+            selected = model.defaultModel,
+            allowNone = true,
+            noneLabel = noneLabel,
+            onPick = { ref -> model.updateDefaultModel(ref) },
+            onDismiss = { showModelPicker = false },
+        )
     }
 }
 

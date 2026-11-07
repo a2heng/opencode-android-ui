@@ -194,6 +194,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** modelID -> 来源分组：0 免费 / 1 opencode go / 2 opencode console / 3 其它 */
     var modelGroupById by mutableStateOf<Map<String, Int>>(emptyMap())
         private set
+    /** 服务端当前默认模型（只读，用于展示） */
+    var serverDefaultModel by mutableStateOf<ModelRef?>(null)
+        private set
 
     // ---- 缓存看板 -----------------------------------------------------------
     var caches by mutableStateOf<List<SessionCache>>(emptyList())
@@ -1055,12 +1058,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                         provider == "opencode" -> 2
                         else -> 3
                     }
-                    id to group
+                    "$provider/$id" to group
                 }.toMap()
                 models = m.filter {
                     val enabled = (it["enabled"] as? JsonPrimitive)?.booleanOrNull
                     val status = it.str("status")
                     (enabled != false) && (status == null || status == "active")
+                }
+                serverDefaultModel = withContext(Dispatchers.IO) {
+                    runCatching { c.defaultModel() }.getOrNull()
                 }
                 val cmds = withContext(Dispatchers.IO) {
                     val local = if (directory.isNullOrBlank()) emptyList() else {

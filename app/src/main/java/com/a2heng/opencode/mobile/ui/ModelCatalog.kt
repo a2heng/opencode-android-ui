@@ -37,7 +37,10 @@ fun sourcePrefix(group: Int?, providerID: String): String = when (group) {
 }
 
 fun modelDisplay(model: ModelRef?, groups: Map<String, Int>): String =
-    model?.let { "${sourcePrefix(groups[it.id], it.providerID)} · ${it.label}" } ?: ""
+    model?.let {
+        val group = groups["${it.providerID}/${it.id}"]
+        "${sourcePrefix(group, it.providerID)} · ${it.label}"
+    } ?: ""
 
 fun modelEntries(models: List<JsonObject>): List<ModelEntry> =
     models.mapNotNull { item ->

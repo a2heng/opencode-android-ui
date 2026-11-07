@@ -313,6 +313,13 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun models(): List<JsonObject> =
         unwrapArray(get("/api/model")).mapNotNull { it as? JsonObject }
 
+    suspend fun defaultModel(): ModelRef? {
+        val body = get("/api/model/default") as? JsonObject ?: return null
+        val data = body["data"] as? JsonObject ?: return null
+        val id = data.str("id") ?: return null
+        return ModelRef(id, data.str("providerID") ?: "")
+    }
+
     suspend fun permissions(): List<PermissionReq> =
         unwrapArray(get("/api/permission/request")).mapNotNull {
             (it as? JsonObject)?.let(::parsePermission)

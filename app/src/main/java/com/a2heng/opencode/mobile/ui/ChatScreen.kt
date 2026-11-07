@@ -506,12 +506,11 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     if (pickModel) {
-        PickerSheet(
+        ModelPickerSheet(
+            model = model,
             title = "选择模型",
-            rows = buildModelRows(model.models) { ref ->
-                model.setModel(ref)
-                pickModel = false
-            },
+            selected = effectiveModel,
+            onPick = { ref -> if (ref != null) model.setModel(ref) },
             onDismiss = { pickModel = false },
         )
     }

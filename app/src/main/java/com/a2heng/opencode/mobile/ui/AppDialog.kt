@@ -45,7 +45,6 @@ fun AppDialog(
     titleSpacing: androidx.compose.ui.unit.Dp = 16.dp,
 ) {
     var backProgress by remember { mutableFloatStateOf(0f) }
-    val deviceCorner = rememberDeviceCornerRadius()
     val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     Dialog(
         onDismissRequest = onDismissRequest,
@@ -63,7 +62,7 @@ fun AppDialog(
             }
         }
         Surface(
-            shape = RoundedCornerShape(deviceCorner),
+            shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             modifier = Modifier

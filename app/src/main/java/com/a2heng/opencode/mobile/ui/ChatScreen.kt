@@ -1822,7 +1822,6 @@ private fun ToolBlock(
 
 @Composable
 private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: () -> Unit) {
-    val deviceCorner = rememberDeviceCornerRadius()
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isWriteTool = part.name == "write"
     val isEditTool = part.name in setOf("edit", "patch", "multiedit")
@@ -1868,14 +1867,14 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
         ) {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(deviceCorner),
+                shape = RoundedCornerShape(16.dp),
                 tonalElevation = 6.dp,
                 modifier = Modifier
-                    .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 8.dp)
+                    .padding(start = 8.dp, end = 8.dp, top = 14.dp, bottom = 8.dp)
                     .fillMaxWidth()
                     .widthIn(max = 720.dp),
             ) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 12.dp)) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         DialogBackButton(onClick = { closing = true })
                         Spacer(Modifier.width(4.dp))
@@ -1914,8 +1913,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                         Modifier
                             .heightIn(max = 680.dp)
                             .verticalScroll(rememberScrollState())
-                            .padding(vertical = 6.dp)
-                            .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)),
+                            .padding(vertical = 5.dp),
                     ) {
                         if (isReadTool) {
                             if (readBody.isNotBlank()) {

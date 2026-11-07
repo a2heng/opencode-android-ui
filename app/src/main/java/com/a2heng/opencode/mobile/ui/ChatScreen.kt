@@ -1602,6 +1602,21 @@ private fun ToolBlock(
                     color = statusColor,
                 )
                 Spacer(Modifier.weight(1f))
+                if (runningShell && !backgrounded) {
+                    Text(
+                        "后台",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickableNoRipple {
+                                backgrounded = true
+                                onBackground()
+                            }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
                 if (part.truncated) {
                     Text("已截断", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

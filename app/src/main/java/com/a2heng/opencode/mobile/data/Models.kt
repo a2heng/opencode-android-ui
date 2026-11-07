@@ -429,10 +429,12 @@ data class CacheStep(
 data class SessionCache(
     val session: SessionInfo,
     val steps: List<CacheStep>,
+    /** 会话级聚合（服务端 session.tokens）；为空时才退回用 steps 求和。 */
+    val aggregate: Tokens? = null,
 ) {
     val totals: Tokens
-        get() = steps.fold(Tokens()) { acc, s -> acc.plus(s.tokens) }
-    val cost: Double get() = steps.sumOf { it.cost }
+        get() = aggregate ?: steps.fold(Tokens()) { acc, s -> acc.plus(s.tokens) }
+    val cost: Double get() = if (session.cost > 0) session.cost else steps.sumOf { it.cost }
     val rate: Double get() = totals.hitRate
     val lastRate: Double get() = steps.lastOrNull()?.rate ?: 0.0
 }

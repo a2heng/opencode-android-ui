@@ -125,6 +125,17 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 
 - 悬浮球只显示**当前会话自己的**后台 shell（`Shell.Info.metadata.sessionID == current.id`）。
 - 别的会话在跑 shell 时，当前对话不显示悬浮球。
+- 原版 Ctrl+B：`POST /api/session/{id}/background` 把正在阻塞的 shell 移到后台。
+  - 精简模式：在运行中的 shell 那一行右侧显示「后台」。
+  - 适中/完整模式：在工具卡片标题右侧显示「后台」。
+  - **有 Pending 时自动调用一次**（`loadInbox` / `loadMessages` 后检查，2.5s 去抖），让队列能继续。
+
+### 4.9 缓存页性能
+
+- 会话缓存详情用内存缓存（最多 12 个会话）：第二次打开直接显示，后台再刷新。
+- 只拉最新 100 条消息算 steps；总量/命中率用服务端 `session.tokens`，成本用 `session.cost`，不要为了统计拉全历史。
+- `stepsOf` / `SessionCache` 计算放 `Dispatchers.Default`，不要在主线程做。
+
 
 
 ## 5. 与服务端的交互（效率）

@@ -225,6 +225,11 @@ class OcClient(rawBase: String, private val password: String) {
         post("/api/session/$sessionID/compact")
     }
 
+    /** 等价于原版 Ctrl+B：把当前阻塞执行的 shell 移到后台观察。 */
+    suspend fun background(sessionID: String) {
+        post("/api/session/$sessionID/background")
+    }
+
     suspend fun reloadConfig() {
         post("/api/location/reload")
     }

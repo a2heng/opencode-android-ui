@@ -225,20 +225,40 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var cacheDetailError by mutableStateOf<String?>(null)
         private set
+    /** 内存缓存：同一个会话第二次打开直接秒开，后台再刷新。 */
+    private val cacheDetailCache = mutableMapOf<String, SessionCache>()
+    private var cacheDetailJob: Job? = null
 
     fun loadCacheDetail(session: SessionInfo) {
         val c = client ?: return
-        if (cacheDetailLoading) return
-        cacheDetailLoading = true
-        cacheDetailError = null
-        viewModelScope.launch {
+        val cached = cacheDetailCache[session.id]
+        if (cached != null) {
+            cacheDetail = cached
+            cacheDetailLoading = false
+            cacheDetailError = null
+        } else {
+            cacheDetailLoading = true
+            cacheDetailError = null
+        }
+        cacheDetailJob?.cancel()
+        cacheDetailJob = viewModelScope.launch {
             try {
-                val messages = withContext(Dispatchers.IO) { c.allMessages(session.id) }
-                cacheDetail = SessionCache(session, stepsOf(messages))
+                // 只取最新一页（200 条）算步骤；总量用服务端的 session.tokens，不再拉全历史
+                val page = withContext(Dispatchers.IO) {
+                    c.messagesPage(session.id, limit = 100, order = "desc")
+                }
+                val detail = withContext(Dispatchers.Default) {
+                    SessionCache(session, stepsOf(page.messages), session.tokens)
+                }
+                if (cacheDetailCache.size >= 12) {
+                    cacheDetailCache.keys.firstOrNull { it != session.id }?.let { cacheDetailCache.remove(it) }
+                }
+                cacheDetailCache[session.id] = detail
+                if (cacheTarget?.id == session.id) cacheDetail = detail
             } catch (e: Exception) {
-                cacheDetailError = e.message
+                if (cacheTarget?.id == session.id && cached == null) cacheDetailError = e.message
             } finally {
-                cacheDetailLoading = false
+                if (cacheTarget?.id == session.id) cacheDetailLoading = false
             }
         }
     }
@@ -608,6 +628,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 // 服务端顺序是权威的：老的在前，最新一页接在后面；不要按 created 重排
                 val merged = messages.filterNot { it.id in freshIds } + fresh
                 messages = merged
+                autoBackgroundIfPending()
                 if (olderCursor == null || merged.size == fresh.size) {
                     olderCursor = page.next
                 }
@@ -779,6 +800,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                         delivery = it.str("delivery") ?: "queue",
                     )
                 }
+                autoBackgroundIfPending()
             } catch (_: Exception) {
             }
         }
@@ -1201,6 +1223,37 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private var lastBackgroundAt = 0L
+
+    /** 当前助手消息里是否还有正在运行的 shell（等价原版 Ctrl+B 的阻塞工作）。 */
+    fun hasRunningShell(): Boolean =
+        messages.lastOrNull { it.isAssistant }?.parts?.any {
+            it is Part.Tool && it.name.lowercase() in setOf("shell", "bash", "sh") && it.status == "running"
+        } == true
+
+    /** 原版 Ctrl+B：把当前阻塞的 shell 移到后台观察。 */
+    fun backgroundCurrent() {
+        val c = client ?: return
+        val s = current ?: return
+        lastBackgroundAt = System.currentTimeMillis()
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { c.background(s.id) }
+                refreshShells()
+                scheduleReload(immediate = true)
+            } catch (e: Exception) {
+                lastError = e.message
+            }
+        }
+    }
+
+    /** 有 Pending 等待时，自动把正在跑的 shell 移到后台，让队列能继续。 */
+    fun autoBackgroundIfPending() {
+        if (queue.isEmpty() || !hasRunningShell()) return
+        if (System.currentTimeMillis() - lastBackgroundAt < 2500) return
+        backgroundCurrent()
+    }
+
     fun reloadConfig() {
         val c = client ?: return
         viewModelScope.launch {
@@ -1234,7 +1287,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     val rows = chunk.map { s ->
                         async(Dispatchers.IO) {
                             try {
-                                SessionCache(s, stepsOf(c.messages(s.id)))
+                                SessionCache(s, stepsOf(c.messages(s.id)), s.tokens)
                             } catch (_: Exception) {
                                 null
                             }

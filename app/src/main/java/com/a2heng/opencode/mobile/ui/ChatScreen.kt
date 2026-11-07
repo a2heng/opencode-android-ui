@@ -1413,9 +1413,9 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                 }
             },
             contentPadding = 10.dp,
-            outerHorizontalPadding = 6.dp,
-            outerVerticalPadding = 8.dp,
-            maxContentHeight = 760.dp,
+            outerHorizontalPadding = 8.dp,
+            outerVerticalPadding = 24.dp,
+            maxContentHeight = 680.dp,
         )
     }
 }
@@ -1869,7 +1869,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                 shape = RoundedCornerShape(deviceCorner),
                 tonalElevation = 6.dp,
                 modifier = Modifier
-                    .padding(horizontal = 4.dp, vertical = 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 24.dp)
                     .fillMaxWidth()
                     .widthIn(max = 720.dp),
             ) {
@@ -1910,7 +1910,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Column(
                         Modifier
-                            .heightIn(max = 760.dp)
+                            .heightIn(max = 680.dp)
                             .verticalScroll(rememberScrollState()),
                     ) {
                         if (isReadTool) {

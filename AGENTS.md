@@ -17,7 +17,8 @@ cd ~/opencode-mobile
 adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-- **发版**：用户要求过按语义化版本打 tag + 发 GitHub Release（v0.3.x 系列）；日常仍然只构建/安装 debug。
+- **发版由用户指挥**：只有用户明确说「打 tag / 发版」时才执行 tag + GitHub Release；不要自己顺手打。日常只构建/安装 debug。
+- **commit 可以自己做，但要攒够一个完整、验证过的改动再提交**；没解决/半成品的改动不要提交，避免"看起来解决了"和提交历史杂乱。
 - 无线调试失效时：`adb pair <ip>:<pair-port> <码>`；连接端口用 `avahi-browse -rt _adb-tls-connect._tcp` 查（MagicOS 上 `adb mdns services` 不可靠）。
 - 手机默认微信输入法：`adb shell input text` 会进拼音候选，自动化测试需要空格/选词提交。
 - 安装完直接告诉用户「已更新」，不要在对话里截屏或乱点手机。
@@ -90,20 +91,20 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   - 布局要紧凑高效，宽度占满（max 560dp），内容可滚动。
   - 状态只显示一次，用中文（完成 / 运行中 / 失败 / exit N），不要显示两次或英文 `completed`。
   - **`write` 顶部是文件名，下面必须是写入的文件内容**（`Part.Tool.payload`），不是状态或 output。
-  - 卡片出现/消失用淡入淡出（不要瞬间出现，也不要夸张的缩放）。
+  - 卡片出现/消失统一走 `CardMotion`（见下方），详情卡见 `rememberOverlayProgress`。
 - 精简模式工具行右侧的命中率要**右对齐、固定宽度**（当前 48dp，`TextAlign.End`），不同行要对齐。
 - 流式思考框：卡片里面带头部（图标 +「思考」+ 进行中/完成 + 字数），内容最多 16 行 + 右下角「展开」弹窗；不要固定高度/内嵌滚动，也不要把标题放在卡片外面。
 - 工具多行输出（shell / diff / write / read）：统一 `TOOL_PREVIEW_LINES = 20` 行阈值，超出在右下角嵌一个「展开」按钮（按钮右下圆角=卡片圆角、左上切角，不要用渐变阴影），点开工具详情弹窗；正文里不要塞滚动条，滚动效果交给系统原生 overscroll。
 - 工具卡片信息去重：`read` 路径只显示一次（副标题 + 行号范围），正文去掉 `Read file …` 头；`edit` 显示路径 + `+N −M`；`write` 显示路径 + 行数。
-- 工具/思考卡片整张都可以点开详情弹窗（「展开」按钮只是额外提示）；**不要用系统 `Dialog` 窗口**（厂商 ROM 会套一层「从角落飘出来」的窗口动画，Compose 关不掉），一律用 `DetailOverlay`（画在当前组合里的全屏遮罩）：原地 90ms 淡入 / 80ms 淡出，没有 scale、没有位移；点遮罩或返回键关闭，打开时顺带收起键盘。弹窗内边距要小（10dp 左右）。
+- 工具/思考卡片整张都可以点开详情弹窗（「展开」按钮只是额外提示）；**不要用系统 `Dialog` 窗口**（厂商 ROM 会套一层「从角落飘出来」的窗口动画，Compose 关不掉），一律用 `DetailOverlay`（画在当前组合里的全屏遮罩）：遮罩和卡片由同一个进度驱动（150ms 淡入 / 110ms 淡出 + 极小缩放），没有位移；点遮罩或返回键关闭，打开时顺带收起键盘。弹窗内边距要小（10dp 左右）。
 - 详情卡内容每次重组都从**最新消息 / `model.liveReasoning`** 取，不是点开那一刻的快照：运行中的工具输出、还在增长的思考内容都要在弹窗里继续更新（流式思考自动滚到底，用户往上翻过就别抢）。
 - 显示模式三档：**精简（compact）** / **适中（full）** / **完整（expanded）**。
   - 精简：工具一行、思考一行，点开看详情。
   - 适中：工具/思考预览 `TOOL_PREVIEW_LINES = 20` 行（思考 16 行），超出右下角「展开」。
   - 完整：全部平铺，不做任何 clamp/展开，卡片自然变高，内容完整。
-- 卡片内边距尽量小（工具/思考卡片约 8dp 横向、4dp 纵向，外面 2dp 间距）；详情弹窗左/右/下 8dp、上 14dp，内部 8~10dp，可滚动内容再留 5dp，内容高度上限 680dp。
+- 卡片内边距尽量小（工具/思考卡片约 8dp 横向、4dp 纵向，外面 2dp 间距）；详情弹窗左/右/下 8dp、上 14~16dp，内部 8~10dp，可滚动内容再留 5dp。
 - 长按用户消息的弹窗里除了回退，还要有「复制」（复制到系统剪贴板并提示「已复制」）。
-- 展开详情卡的内容高度统一用 `rememberDialogContentHeight()`：上限 = 屏幕高 − 2×设备 R 角 − 120dp，下限 = 上限 × 0.62；工具/思考共用，避免有的太矮、有的顶出 R 角。
+- 展开详情卡的内容高度统一用 `rememberDialogContentHeight()`（上限 = 屏幕高 − 2×设备 R 角 − 120dp，下限 = 上限 × 0.62），工具/思考共用；不要再写死 680dp。
 - 内部内容要有视觉突出：思考卡左侧加 primary 竖条（`LeftAccent`），shell 输出左侧加 Sky 竖条；详情弹窗里的 shell 输出用 `ShellBlock`（自带左侧亮条），read/write 保持代码块样式。
 - 详情弹窗**不要底部操作条**（不要「关闭 / 完成」横条），内容占满；左上角标题前放 32dp 的返回按钮，配合系统返回手势。
 - diff 每行 `fontSize = 10.sp` 时必须显式 `lineHeight = 12.sp`（默认 body 行高会虚高），行间 padding 0.5dp。详情弹窗的圆角只加在**外层卡片**（工具详情 16dp、AppDialog 18dp，不用设备 R 角），内部滚动内容不要再单独裁 R 角。
@@ -198,26 +199,28 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```
 app/src/main/java/com/a2heng/opencode/mobile/
-├── MainActivity.kt            # 启动画面、分享入口、通知权限、ON_RESUME 补连
+├── MainActivity.kt            # 启动画面、分享入口、通知权限、ON_RESUME 刷新
 ├── ConnectionService.kt       # 前台保活通知
 ├── data/
-│   ├── OcClient.kt            # HTTP/SSE/PTY/命令/分页消息
+│   ├── OcClient.kt            # HTTP/SSE/PTY/命令/分页消息/文件/shell
 │   ├── Models.kt              # JSON 宽松解析、缓存统计、Attachment/ShellInfo/MessagesPage
-│   ├── AppModel.kt            # 全局状态、事件、队列、重连、消息缓存与分页
-│   └── UpdateClient.kt        # GitHub Release 检查/下载（仅保留功能，不发版）
+│   ├── AppModel.kt            # 全局状态、事件、队列、重连、消息缓存与分页、openSessions 持久化
+│   └── UpdateClient.kt        # GitHub Release 检查/下载
 └── ui/
     ├── AppRoot.kt             # 主框架：竖屏底部导航 / 横屏 rail + 会话双栏 + 各页外壳（无全局顶栏）
-    ├── ChatScreen.kt          # 对话、标题、输入区、工具卡片、打开会话卷帘
+    ├── ChatScreen.kt          # 对话、标题、输入区、工具卡片、打开会话卷帘、表单
     ├── SessionCacheScreen.kt  # 单会话缓存页
-    ├── SessionsScreen.kt      # 会话列表（命中率在左、三点在右）
+    ├── SessionsScreen.kt      # 会话列表（命中率在左、三点在右、右上角圆形 +）
+    ├── FilesScreen.kt         # 文件：宽屏左列表 + 右预览
+    ├── TerminalScreen.kt      # PTY 列表 / 终端
     ├── SettingsScreen.kt      # 默认模型/外观/主题/发送模式/显示/更新
     ├── FloatingShells.kt      # 后台 shell 悬浮球
-    └── Markdown.kt / ToolViews.kt / ModelCatalog.kt / AppDialog.kt
+    └── Markdown.kt / ToolViews.kt / ModelCatalog.kt / AppDialog.kt / Components.kt
 ```
 
 ## 8. 已知约束
 
 - debug 与 release 签名不同，不能互相覆盖；换装需先卸载（会丢 App 内保存的服务器/密码）。
 - 不修改 `~/.local/share/opencode` 的数据；App 只读服务端 API。
-- 不在会话里随手点手机、截屏；需要验证就让用户自己看，或只做 adb 安装。
+- 不在真机上随手点、截屏；真机验证让用户自己看（模拟器可以自己截图看）。
 - 每次改动同步更新 `docs/API-NOTES.md` 和本文件的「用户偏好」部分，保持文档是活的。

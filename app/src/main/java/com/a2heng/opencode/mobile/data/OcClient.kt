@@ -186,6 +186,10 @@ class OcClient(rawBase: String, private val password: String) {
         post("/api/session/$sessionID/compact")
     }
 
+    suspend fun reloadConfig() {
+        post("/api/location/reload")
+    }
+
     suspend fun shells(): List<ShellInfo> =
         unwrapArray(get("/api/shell")).mapNotNull { item ->
             val o = item as? JsonObject ?: return@mapNotNull null

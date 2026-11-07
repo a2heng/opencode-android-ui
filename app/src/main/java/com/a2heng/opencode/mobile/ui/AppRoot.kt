@@ -37,6 +37,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -66,7 +67,6 @@ private data class Tab(val label: String, val icon: androidx.compose.ui.graphics
 
 private val tabs = listOf(
     Tab("会话", Icons.Rounded.ChatBubbleOutline),
-    Tab("缓存", Icons.Rounded.Speed),
     Tab("文件", Icons.Rounded.FolderOpen),
     Tab("终端", Icons.Rounded.Terminal),
     Tab("设置", Icons.Rounded.Settings),
@@ -77,6 +77,21 @@ private val tabs = listOf(
 fun MainScreen(model: AppModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showNewSession by rememberSaveable { mutableStateOf(false) }
+    var cacheSession by remember { mutableStateOf<com.a2heng.opencode.mobile.data.SessionInfo?>(null) }
+
+    val cache = cacheSession
+    if (cache != null) {
+        SessionCacheScreen(
+            model = model,
+            session = cache,
+            onBack = { cacheSession = null },
+            onOpenChat = { session ->
+                cacheSession = null
+                model.openSession(session)
+            },
+        )
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -86,9 +101,8 @@ fun MainScreen(model: AppModel) {
                         Text(
                             when (tab) {
                                 0 -> "会话"
-                                1 -> "缓存命中率"
-                                2 -> "文件"
-                                3 -> "终端"
+                                1 -> "文件"
+                                2 -> "终端"
                                 else -> "设置"
                             },
                         )
@@ -144,10 +158,13 @@ fun MainScreen(model: AppModel) {
         Column(Modifier.padding(padding).fillMaxSize()) {
             ErrorBanner(model)
             when (tab) {
-                0 -> SessionsScreen(model, onNewSession = { showNewSession = true })
-                1 -> CacheScreen(model)
-                2 -> FilesScreen(model)
-                3 -> TerminalScreen(model)
+                0 -> SessionsScreen(
+                    model = model,
+                    onNewSession = { showNewSession = true },
+                    onOpenCache = { cacheSession = it },
+                )
+                1 -> FilesScreen(model)
+                2 -> TerminalScreen(model)
                 else -> SettingsScreen(model)
             }
         }

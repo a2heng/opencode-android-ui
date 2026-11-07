@@ -188,6 +188,36 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var cacheFetchedAt by mutableStateOf(0L)
         private set
 
+    /** 单个会话的缓存详情（从会话列表点命中率进入） */
+    var cacheDetail by mutableStateOf<SessionCache?>(null)
+        private set
+    var cacheDetailLoading by mutableStateOf(false)
+        private set
+    var cacheDetailError by mutableStateOf<String?>(null)
+        private set
+
+    fun loadCacheDetail(session: SessionInfo) {
+        val c = client ?: return
+        if (cacheDetailLoading) return
+        cacheDetailLoading = true
+        cacheDetailError = null
+        viewModelScope.launch {
+            try {
+                val messages = withContext(Dispatchers.IO) { c.messages(session.id) }
+                cacheDetail = SessionCache(session, stepsOf(messages))
+            } catch (e: Exception) {
+                cacheDetailError = e.message
+            } finally {
+                cacheDetailLoading = false
+            }
+        }
+    }
+
+    fun clearCacheDetail() {
+        cacheDetail = null
+        cacheDetailError = null
+    }
+
     // ---- 文件 ---------------------------------------------------------------
     var fsDir by mutableStateOf("")
         private set
@@ -988,6 +1018,19 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             try {
                 withContext(Dispatchers.IO) { c.compact(s.id) }
                 loadMessages(silent = true)
+            } catch (e: Exception) {
+                lastError = e.message
+            }
+        }
+    }
+
+    fun reloadConfig() {
+        val c = client ?: return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { c.reloadConfig() }
+                loadMeta(current?.directory)
+                refreshSessions()
             } catch (e: Exception) {
                 lastError = e.message
             }

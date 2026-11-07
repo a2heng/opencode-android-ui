@@ -407,6 +407,9 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                             when (cmd.name) {
                                 "compact" -> model.compactSession()
                                 "interrupt" -> model.interrupt()
+                                "model" -> pickModel = true
+                                "agent" -> pickAgent = true
+                                "reload" -> model.reloadConfig()
                                 else -> model.runCommand(
                                     cmd.name,
                                     text.removePrefix("/" + cmd.name).trim(),
@@ -614,10 +617,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
         ModalBottomSheet(onDismissRequest = { showCommands = false }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Text("命令", style = MaterialTheme.typography.titleMedium)
-                val commandList = model.commands + listOf(
-                    CommandInfo("compact", "压缩当前会话的上下文"),
-                    CommandInfo("interrupt", "中断当前回答"),
-                ).filter { extra -> model.commands.none { it.name == extra.name } }
+                val commandList = allCommands(model)
                 if (commandList.isEmpty()) {
                     Text(
                         "没有可用命令",
@@ -673,12 +673,55 @@ private fun ChatComposer(
 ) {
     var actionsOpen by rememberSaveable { mutableStateOf(false) }
     val rotation by animateFloatAsState(if (actionsOpen) 45f else 0f, label = "plus-rotate")
+    val slashQuery = if (value.startsWith("/") && !value.contains(' ')) value.substring(1) else null
+    val suggestions = if (slashQuery == null) {
+        emptyList()
+    } else {
+        allCommands(model)
+            .filter { it.name.contains(slashQuery, ignoreCase = true) }
+            .take(6)
+    }
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
         ) {
+            if (suggestions.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Column {
+                        suggestions.forEach { cmd ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickableNoRipple { onChange("/" + cmd.name + " ") }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "/" + cmd.name,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    cmd.description,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             if (attachments.isNotEmpty()) {
                 Row(
                     Modifier
@@ -812,8 +855,16 @@ private fun ChatComposer(
                 FloatingActionButton(
                     onClick = { if (hasContent) onSend() else onClose() },
                     modifier = Modifier.size(48.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = if (hasContent) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = if (hasContent) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
                     shape = CircleShape,
                 ) {
                     Icon(
@@ -881,7 +932,7 @@ private fun MessageItem(
         msg.parts.forEach { part ->
             when (part) {
                 is Part.Reasoning -> ReasoningBlock(part.text, detail)
-                is Part.Tool -> ToolBlock(part, detail, onOpenTool)
+                is Part.Tool -> ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate)
                 is Part.Text -> AssistantText(part.text)
             }
         }
@@ -968,7 +1019,12 @@ private fun ShellBlock(text: String, command: Boolean, maxLines: Int) {
 }
 
 @Composable
-private fun ToolBlock(part: Part.Tool, detail: String, onOpen: (Part.Tool) -> Unit) {
+private fun ToolBlock(
+    part: Part.Tool,
+    detail: String,
+    onOpen: (Part.Tool) -> Unit,
+    rate: Double? = null,
+) {
     val hasDiff = part.diff.isNotBlank()
     val hasOutput = part.output.isNotBlank()
     val hasImages = part.images.isNotEmpty()
@@ -1018,7 +1074,16 @@ private fun ToolBlock(part: Part.Tool, detail: String, onOpen: (Part.Tool) -> Un
                 hasError -> "错误"
                 else -> ""
             }
-            if (extra.isNotEmpty()) {
+            if (rate != null) {
+                Spacer(Modifier.width(6.dp))
+                val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
+                Text(
+                    rateLabel(rate),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = rateColor(rate, dark),
+                )
+            } else if (extra.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
                 Text(extra, style = MaterialTheme.typography.labelSmall, color = statusColor.copy(alpha = 0.9f))
             }
@@ -1370,6 +1435,20 @@ fun loadImageAttachment(context: Context, uri: Uri): Attachment? = runCatching {
 }.getOrNull()
 
 data class PickerRow(val title: String, val subtitle: String, val onClick: () -> Unit)
+
+/** opencode 原生命令 + 本 App 的客户端命令（去重）。 */
+private fun builtinClientCommands(): List<CommandInfo> = listOf(
+    CommandInfo("compact", "压缩当前会话的上下文"),
+    CommandInfo("interrupt", "中断当前回答"),
+    CommandInfo("model", "切换模型"),
+    CommandInfo("agent", "切换 Agent"),
+    CommandInfo("reload", "重新加载服务端配置"),
+)
+
+private fun allCommands(model: AppModel): List<CommandInfo> =
+    model.commands + builtinClientCommands().filter { extra ->
+        model.commands.none { it.name == extra.name }
+    }
 
 @Composable
 private fun SendModeItem(label: String, selected: Boolean, onClick: () -> Unit) {

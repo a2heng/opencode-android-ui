@@ -53,7 +53,11 @@ import com.a2heng.opencode.mobile.data.formatTokens
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SessionsScreen(model: AppModel, onNewSession: () -> Unit) {
+fun SessionsScreen(
+    model: AppModel,
+    onNewSession: () -> Unit,
+    onOpenCache: (SessionInfo) -> Unit,
+) {
     var query by rememberSaveable { mutableStateOf("") }
     var grouped by rememberSaveable { mutableStateOf(true) }
     val list = remember(model.sessions, query) {
@@ -139,14 +143,14 @@ fun SessionsScreen(model: AppModel, onNewSession: () -> Unit) {
                             RunningHeader(running.size)
                         }
                         items(running, key = { "run:${it.id}" }) { session ->
-                            SessionRow(model, session)
+                            SessionRow(model, session, onOpenCache)
                         }
                     } else if (recent.isNotEmpty()) {
                         stickyHeader(key = "recent") {
                             RecentHeader()
                         }
                         items(recent, key = { "recent:${it.id}" }) { session ->
-                            SessionRow(model, session)
+                            SessionRow(model, session, onOpenCache)
                         }
                     }
                     if (grouped) {
@@ -155,12 +159,12 @@ fun SessionsScreen(model: AppModel, onNewSession: () -> Unit) {
                                 FolderHeader(dir, items.size, model.homeDir)
                             }
                             items(items, key = { it.id }) { session ->
-                                SessionRow(model, session)
+                                SessionRow(model, session, onOpenCache)
                             }
                         }
                     } else {
                         items(rest, key = { it.id }) { session ->
-                            SessionRow(model, session)
+                            SessionRow(model, session, onOpenCache)
                         }
                     }
                     item { Spacer(Modifier.height(90.dp)) }
@@ -289,7 +293,11 @@ private fun FolderHeader(dir: String, count: Int, home: String) {
 }
 
 @Composable
-private fun SessionRow(model: AppModel, session: SessionInfo) {
+private fun SessionRow(
+    model: AppModel,
+    session: SessionInfo,
+    onOpenCache: (SessionInfo) -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
@@ -353,6 +361,9 @@ private fun SessionRow(model: AppModel, session: SessionInfo) {
                 rateLabelSafe(rate),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clickableNoRipple { onOpenCache(session) }
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
             )
         }
         Box {

@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { model.retryIfNeeded() }
-            OcTheme(themeMode = model.themeMode) {
+            OcTheme(themeMode = model.themeMode, appearance = model.appearance) {
                 LaunchedEffect(shared) {
                     shared?.let {
                         model.applyShare(it.text, it.image)

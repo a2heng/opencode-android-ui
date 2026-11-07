@@ -122,8 +122,17 @@ fun rateColor(rate: Double, dark: Boolean): Color = when {
 }
 
 @Composable
-fun OcTheme(themeMode: String = "mono", content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+fun OcTheme(
+    themeMode: String = "mono",
+    appearance: String = "system",
+    content: @Composable () -> Unit,
+) {
+    val systemDark = isSystemInDarkTheme()
+    val dark = when (appearance) {
+        "dark" -> true
+        "light" -> false
+        else -> systemDark
+    }
     val context = LocalContext.current
     val colors: ColorScheme = when {
         themeMode == "dynamic" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->

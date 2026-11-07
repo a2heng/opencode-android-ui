@@ -77,16 +77,15 @@ private val tabs = listOf(
 fun MainScreen(model: AppModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showNewSession by rememberSaveable { mutableStateOf(false) }
-    var cacheSession by remember { mutableStateOf<com.a2heng.opencode.mobile.data.SessionInfo?>(null) }
 
-    val cache = cacheSession
+    val cache = model.cacheTarget
     if (cache != null) {
         SessionCacheScreen(
             model = model,
             session = cache,
-            onBack = { cacheSession = null },
+            onBack = { model.closeCache() },
             onOpenChat = { session ->
-                cacheSession = null
+                model.closeCache()
                 model.openSession(session)
             },
         )
@@ -161,7 +160,7 @@ fun MainScreen(model: AppModel) {
                 0 -> SessionsScreen(
                     model = model,
                     onNewSession = { showNewSession = true },
-                    onOpenCache = { cacheSession = it },
+                    onOpenCache = { model.openCache(it) },
                 )
                 1 -> FilesScreen(model)
                 2 -> TerminalScreen(model)

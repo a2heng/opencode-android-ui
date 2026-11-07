@@ -249,14 +249,16 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     }
 
     Scaffold(
-        modifier = Modifier.graphicsLayer {
-            val scale = 1f - 0.07f * backProgress
-            scaleX = scale
-            scaleY = scale
-            // 往右滑走，左下露出下面的会话列表
-            translationX = size.width * 0.32f * backProgress
-            alpha = 1f - 0.08f * backProgress
-        },
+        modifier = Modifier
+            .clip(RoundedCornerShape((34f * backProgress).dp))
+            .graphicsLayer {
+                val scale = 1f - 0.14f * backProgress
+                scaleX = scale
+                scaleY = scale
+                // 往右滑走，左下露出下面的会话列表
+                translationX = size.width * 0.48f * backProgress
+                alpha = 1f - 0.20f * backProgress
+            },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
@@ -271,37 +273,46 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                 title = {
                     Column {
                         Text(session.shortTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                listOfNotNull(
-                                    effectiveModel?.label?.takeIf { it.isNotBlank() } ?: "默认模型",
-                                    session.agent.takeIf { it.isNotBlank() },
-                                    if (model.sending) model.statusLine.ifBlank { "运行中…" } else null,
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (model.sending) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TitleChip(
+                                effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
+                                    ?.takeIf { it.isNotBlank() } ?: "选择模型",
+                            ) {
+                                model.loadMeta(session.directory)
+                                pickModel = true
+                            }
+                            TitleChip(session.agent.ifBlank { "默认 Agent" }) {
+                                model.loadMeta(session.directory)
+                                pickAgent = true
+                            }
+                            if (lastTokens != null) {
+                                val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
+                                TitleChip(
+                                    "命中 ${rateLabel(lastTokens.hitRate)}",
+                                    color = rateColor(lastTokens.hitRate, dark),
+                                ) { model.openCache(session) }
+                            }
                             if (contextPct != null) {
-                                Spacer(Modifier.width(6.dp))
+                                TitleChip("ctx ${contextPct.roundToInt()}%", color = contextColor) {
+                                    model.openCache(session)
+                                }
+                            }
+                            if (model.sending) {
                                 Text(
-                                    "ctx ${contextPct.roundToInt()}%",
+                                    model.statusLine.ifBlank { "运行中…" },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = contextColor,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
                                 )
                             }
                         }
                     }
                 },
                 actions = {
-                    if (model.sending) {
-                        IconButton(onClick = { model.interrupt() }) {
-                            Icon(Icons.Rounded.Stop, contentDescription = "中断", tint = MaterialTheme.colorScheme.error)
-                        }
-                    }
                     Box {
                         IconButton(onClick = { openMenu = true }) {
                             Icon(
@@ -345,36 +356,6 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                                     },
                                 )
                             }
-                        }
-                    }
-                    Box {
-                        IconButton(onClick = { menu = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "更多")
-                        }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("切换模型") },
-                                onClick = {
-                                    menu = false
-                                    model.loadMeta()
-                                    pickModel = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("切换 Agent") },
-                                onClick = {
-                                    menu = false
-                                    model.loadMeta()
-                                    pickAgent = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("刷新消息") },
-                                onClick = {
-                                    menu = false
-                                    model.loadMessages()
-                                },
-                            )
                         }
                     }
                 },
@@ -527,14 +508,9 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
     if (pickModel) {
         PickerSheet(
             title = "选择模型",
-            rows = model.models.mapNotNull { m ->
-                val id = m.str("id") ?: return@mapNotNull null
-                val provider = m.str("providerID") ?: ""
-                val name = m.str("name") ?: id
-                PickerRow(name, "$provider · $id") {
-                    model.setModel(com.a2heng.opencode.mobile.data.ModelRef(id, provider))
-                    pickModel = false
-                }
+            rows = buildModelRows(model.models) { ref ->
+                model.setModel(ref)
+                pickModel = false
             },
             onDismiss = { pickModel = false },
         )
@@ -545,10 +521,10 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
             title = "选择 Agent",
             rows = model.agents.mapNotNull { a ->
                 val id = a.str("id") ?: return@mapNotNull null
-                PickerRow(a.str("name") ?: id, a.str("description") ?: id) {
+                PickerRow(a.str("name") ?: id, a.str("description") ?: id, onClick = {
                     model.setAgent(id)
                     pickAgent = false
-                }
+                })
             },
             onDismiss = { pickAgent = false },
         )
@@ -615,7 +591,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
 
     if (showCommands) {
         ModalBottomSheet(onDismissRequest = { showCommands = false }) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.62f)
+                    .padding(horizontal = 16.dp),
+            ) {
                 Text("命令", style = MaterialTheme.typography.titleMedium)
                 val commandList = allCommands(model)
                 if (commandList.isEmpty()) {
@@ -626,7 +607,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
                         modifier = Modifier.padding(vertical = 16.dp),
                     )
                 }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                     items(commandList, key = { it.name }) { cmd ->
                         Row(
                             Modifier
@@ -834,7 +815,6 @@ private fun ChatComposer(
                     },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    maxLines = 1,
                     shape = RoundedCornerShape(18.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                     trailingIcon = {
@@ -858,12 +838,12 @@ private fun ChatComposer(
                     containerColor = if (hasContent) {
                         MaterialTheme.colorScheme.primary
                     } else {
-                        MaterialTheme.colorScheme.surfaceVariant
+                        MaterialTheme.colorScheme.error
                     },
                     contentColor = if (hasContent) {
                         MaterialTheme.colorScheme.onPrimary
                     } else {
-                        MaterialTheme.colorScheme.error
+                        MaterialTheme.colorScheme.onError
                     },
                     shape = CircleShape,
                 ) {
@@ -875,6 +855,28 @@ private fun ChatComposer(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TitleChip(
+    text: String,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.clickableNoRipple(onClick),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 
@@ -1434,7 +1436,28 @@ fun loadImageAttachment(context: Context, uri: Uri): Attachment? = runCatching {
     )
 }.getOrNull()
 
-data class PickerRow(val title: String, val subtitle: String, val onClick: () -> Unit)
+data class PickerRow(
+    val title: String,
+    val subtitle: String,
+    val isHeader: Boolean = false,
+    val onClick: () -> Unit = {},
+)
+
+private fun buildModelRows(
+    models: List<JsonObject>,
+    onPick: (com.a2heng.opencode.mobile.data.ModelRef) -> Unit,
+): List<PickerRow> {
+    val rows = mutableListOf<PickerRow>()
+    var lastGroup = -1
+    modelEntries(models).forEach { entry ->
+        if (entry.group != lastGroup) {
+            rows += PickerRow(modelGroupTitle(entry.group), "", isHeader = true)
+            lastGroup = entry.group
+        }
+        rows += PickerRow(entry.name, "${entry.providerID} · ${entry.ref.id}", onClick = { onPick(entry.ref) })
+    }
+    return rows
+}
 
 /** opencode 原生命令 + 本 App 的客户端命令（去重）。 */
 private fun builtinClientCommands(): List<CommandInfo> = listOf(
@@ -1478,21 +1501,30 @@ private fun PickerSheet(title: String, rows: List<PickerRow>, onDismiss: () -> U
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 items(rows.size) { index ->
                     val row = rows[index]
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickableNoRipple(row.onClick)
-                            .padding(vertical = 11.dp),
-                    ) {
-                        Column {
-                            Text(row.title, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                row.subtitle,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                    if (row.isHeader) {
+                        Text(
+                            row.title,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                        )
+                    } else {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickableNoRipple(row.onClick)
+                                .padding(vertical = 11.dp),
+                        ) {
+                            Column {
+                                Text(row.title, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    row.subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }

@@ -339,7 +339,8 @@ private fun SessionRow(
             Text(
                 buildList {
                     add(session.directory.substringAfterLast('/').ifBlank { session.directory })
-                    add(session.model?.label ?: session.agent.ifBlank { "默认模型" })
+                    add(session.model?.let { modelDisplay(it, model.modelGroupById) }?.takeIf { it.isNotBlank() }
+                        ?: session.agent.ifBlank { "—" })
                     session.tokens?.let { add(formatTokens(it.input + it.cacheRead) + " tok") }
                 }.joinToString("  ·  "),
                 style = MaterialTheme.typography.labelSmall,

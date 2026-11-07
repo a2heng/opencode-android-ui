@@ -1,6 +1,7 @@
 package com.a2heng.opencode.mobile.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -35,11 +36,18 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,12 +75,35 @@ fun SessionCacheScreen(
     LaunchedEffect(session.id) {
         if (model.cacheDetail?.session?.id != session.id) model.loadCacheDetail(session)
     }
-    BackHandler { onBack() }
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    val backOwner = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
+    if (backOwner != null) {
+        PredictiveBackHandler { events ->
+            try {
+                events.collect { event -> backProgress = event.progress }
+                onBack()
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                backProgress = 0f
+                throw cancel
+            }
+        }
+    } else {
+        BackHandler { onBack() }
+    }
 
     val detail = model.cacheDetail?.takeIf { it.session.id == session.id }
     val dark = MaterialTheme.colorScheme.background.luminanceIsDark()
 
     Scaffold(
+        modifier = Modifier
+            .clip(RoundedCornerShape((34f * backProgress).dp))
+            .graphicsLayer {
+                val scale = 1f - 0.14f * backProgress
+                scaleX = scale
+                scaleY = scale
+                translationX = size.width * 0.48f * backProgress
+                alpha = 1f - 0.20f * backProgress
+            },
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
@@ -128,7 +159,7 @@ fun SessionCacheScreen(
                 Text("下拉刷新或点右上角重新拉取", style = MaterialTheme.typography.labelSmall)
             }
 
-            else -> CacheDetailBody(detail, dark, padding)
+            else -> CacheDetailBody(detail, dark, padding, model.modelGroupById)
         }
     }
 }
@@ -138,6 +169,7 @@ private fun CacheDetailBody(
     detail: com.a2heng.opencode.mobile.data.SessionCache,
     dark: Boolean,
     padding: androidx.compose.foundation.layout.PaddingValues,
+    groups: Map<String, Int>,
 ) {
     val totals = detail.totals
     val color = rateColor(detail.rate, dark)
@@ -188,7 +220,7 @@ private fun CacheDetailBody(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "${detail.session.model?.label ?: "默认模型"} · ${detail.steps.size} 步 · ${formatCost(detail.cost)}",
+                        "${detail.session.model?.let { modelDisplay(it, groups) } ?: "—"} · ${detail.steps.size} 步 · ${formatCost(detail.cost)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

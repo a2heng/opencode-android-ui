@@ -77,6 +77,20 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var themeMode by mutableStateOf(prefs.getString("theme_mode", "mono") ?: "mono")
         private set
 
+    /** 外观：system（默认）/ light / dark */
+    var appearance by mutableStateOf(prefs.getString("appearance", "system") ?: "system")
+        private set
+
+    /** 全局默认模型（新会话使用）；null 表示跟随服务端默认 */
+    var defaultModel by mutableStateOf<ModelRef?>(
+        run {
+            val id = prefs.getString("default_model_id", "") ?: ""
+            val provider = prefs.getString("default_model_provider", "") ?: ""
+            if (id.isBlank()) null else ModelRef(id, provider)
+        },
+    )
+        private set
+
     /** 从其它应用分享进来的内容，等聊天页消费 */
     var pendingDraft by mutableStateOf<String?>(null)
         private set
@@ -177,6 +191,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** modelID -> context window */
     var contextLimits by mutableStateOf<Map<String, Long>>(emptyMap())
         private set
+    /** modelID -> 来源分组：0 免费 / 1 opencode go / 2 opencode console / 3 其它 */
+    var modelGroupById by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
 
     // ---- 缓存看板 -----------------------------------------------------------
     var caches by mutableStateOf<List<SessionCache>>(emptyList())
@@ -216,6 +233,20 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun clearCacheDetail() {
         cacheDetail = null
         cacheDetailError = null
+    }
+
+    /** 当前打开的缓存详情页（会话列表或对话标题里的命中率胶囊共用） */
+    var cacheTarget by mutableStateOf<SessionInfo?>(null)
+        private set
+
+    fun openCache(session: SessionInfo) {
+        cacheTarget = session
+        loadCacheDetail(session)
+    }
+
+    fun closeCache() {
+        cacheTarget = null
+        clearCacheDetail()
     }
 
     // ---- 文件 ---------------------------------------------------------------
@@ -334,6 +365,19 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun updateThemeMode(mode: String) {
         themeMode = mode
         prefs.edit().putString("theme_mode", mode).apply()
+    }
+
+    fun updateAppearance(mode: String) {
+        appearance = mode
+        prefs.edit().putString("appearance", mode).apply()
+    }
+
+    fun updateDefaultModel(model: ModelRef?) {
+        defaultModel = model
+        prefs.edit()
+            .putString("default_model_id", model?.id ?: "")
+            .putString("default_model_provider", model?.providerID ?: "")
+            .apply()
     }
 
     fun applyShare(text: String?, image: Attachment?) {
@@ -702,8 +746,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     ?: current?.directory?.takeIf { it.isNotBlank() }
                     ?: sessions.firstOrNull()?.directory
                 val s = withContext(Dispatchers.IO) { c.createSession(dir) }
+                if (s != null) {
+                    defaultModel?.let { chosen ->
+                        runCatching { withContext(Dispatchers.IO) { c.setModel(s.id, chosen) } }
+                    }
+                }
                 refreshSessions()
-                if (s != null) openSession(s)
+                if (s != null) openSession(s.copy(model = defaultModel ?: s.model))
             } catch (e: Exception) {
                 lastError = e.message
             }
@@ -992,6 +1041,21 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     val id = item.str("id") ?: return@mapNotNull null
                     val limit = item.obj("limit")?.long("context") ?: 0L
                     if (limit > 0) id to limit else null
+                }.toMap()
+                modelGroupById = m.mapNotNull { item ->
+                    val id = item.str("id") ?: return@mapNotNull null
+                    val provider = item.str("providerID") ?: ""
+                    val cost = (item["cost"] as? kotlinx.serialization.json.JsonArray)
+                        ?.firstOrNull() as? kotlinx.serialization.json.JsonObject
+                    val free = (cost?.dbl("input") ?: 0.0) == 0.0 &&
+                        (cost?.dbl("output") ?: 0.0) == 0.0
+                    val group = when {
+                        provider == "opencode-go" -> 1
+                        provider == "opencode" && free -> 0
+                        provider == "opencode" -> 2
+                        else -> 3
+                    }
+                    id to group
                 }.toMap()
                 models = m.filter {
                     val enabled = (it["enabled"] as? JsonPrimitive)?.booleanOrNull

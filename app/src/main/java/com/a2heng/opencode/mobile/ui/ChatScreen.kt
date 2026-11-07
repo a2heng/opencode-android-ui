@@ -1,10 +1,13 @@
 package com.a2heng.opencode.mobile.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -751,6 +754,13 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
             },
             dismissButton = {
                 Row {
+                    TextButton(
+                        onClick = {
+                            copyToClipboard(context, msg.text)
+                            revertTarget = null
+                        },
+                        enabled = msg.text.isNotBlank(),
+                    ) { Text("复制") }
                     TextButton(onClick = { revertTarget = null }) { Text("取消") }
                     TextButton(onClick = {
                         model.revertTo(msg.id, true)
@@ -1242,6 +1252,27 @@ private fun AssistantText(text: String) {
 /** 工具卡片正文最多预览的行数：超过就显示「… 展开」，所有工具共用这一个阈值。 */
 private const val TOOL_PREVIEW_LINES = 20
 
+@Composable
+private fun LeftAccent(
+    accent: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(accent, RoundedCornerShape(2.dp)),
+        )
+        Box(Modifier.weight(1f).padding(start = 6.dp)) { content() }
+    }
+}
+
 /**
  * 多行文本的「省略 + 展开」：到固定行数后加省略号，末尾给一个可点的高亮「展开」，
  * 完整内容交给工具详情/思考详情弹窗去看，不在正文里塞滚动条。
@@ -1297,6 +1328,7 @@ private fun ClampedText(
 private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) {
     if (text.isBlank()) return
     var expanded by remember { mutableStateOf(false) }
+    val (contentMin, contentMax) = rememberDialogContentHeight()
     if (detail == "compact") {
         // 精简模式也给一行思考，点开看完整内容
         Row(
@@ -1371,20 +1403,25 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
                 )
             }
             // 卡片本身就是唯一容器：不再套一层深色背景 + padding
-            if (detail == "expanded") {
-                MarkdownText(
-                    text,
-                    Modifier.fillMaxWidth().padding(top = 4.dp),
-                    compact = true,
-                )
-            } else {
-                ClampedText(
-                    text,
-                    maxLines = 16,
-                    onExpand = { expanded = true },
-                    maskColor = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                )
+            LeftAccent(
+                accent = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                if (detail == "expanded") {
+                    MarkdownText(
+                        text,
+                        Modifier.fillMaxWidth(),
+                        compact = true,
+                    )
+                } else {
+                    ClampedText(
+                        text,
+                        maxLines = 16,
+                        onExpand = { expanded = true },
+                        maskColor = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }
@@ -1402,9 +1439,9 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
             text = {
                 Box(
                     Modifier
-                        .heightIn(max = 460.dp)
+                        .heightIn(min = contentMin, max = contentMax)
                         .verticalScroll(rememberScrollState())
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 5.dp),
                 ) {
                     MarkdownText(
                         text,
@@ -1417,7 +1454,7 @@ private fun ReasoningBlock(text: String, detail: String, live: Boolean = false) 
             outerHorizontalPadding = 8.dp,
             outerTopPadding = 16.dp,
             outerBottomPadding = 8.dp,
-            maxContentHeight = 680.dp,
+            maxContentHeight = contentMax,
         )
     }
 }
@@ -1641,15 +1678,9 @@ private fun ToolBlock(
                     ShellBlock(part.input.take(4000), command = true, maxLines = 6)
                 }
                 if (hasOutput) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                            .background(
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                                RoundedCornerShape(6.dp),
-                            )
-                            .padding(6.dp),
+                    LeftAccent(
+                        accent = Sky,
+                        modifier = Modifier.padding(top = 4.dp),
                     ) {
                         if (isExpanded) {
                             Text(
@@ -1822,6 +1853,7 @@ private fun ToolBlock(
 
 @Composable
 private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: () -> Unit) {
+    val (contentMin, contentMax) = rememberDialogContentHeight()
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isWriteTool = part.name == "write"
     val isEditTool = part.name in setOf("edit", "patch", "multiedit")
@@ -1911,7 +1943,7 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Column(
                         Modifier
-                            .heightIn(max = 680.dp)
+                            .heightIn(min = contentMin, max = contentMax)
                             .verticalScroll(rememberScrollState())
                             .padding(vertical = 5.dp),
                     ) {
@@ -1963,13 +1995,21 @@ private fun ToolDetailDialog(part: Part.Tool, baseDir: String = "", onDismiss: (
                             }
                             if (part.output.isNotBlank() && (isShellTool || !isEditTool)) {
                                 Spacer(Modifier.height(6.dp))
-                                Text(
-                                    part.output,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                if (isShellTool) {
+                                    ShellBlock(
+                                        part.output.takeLast(30000),
+                                        command = false,
+                                        maxLines = Int.MAX_VALUE,
+                                    )
+                                } else {
+                                    Text(
+                                        part.output,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                         if (part.error.isNotBlank()) {
@@ -1993,6 +2033,14 @@ private fun toolStatusLabel(part: Part.Tool): String = when {
     part.status == "running" -> "运行中"
     part.status == "error" || part.status == "failed" -> "失败"
     else -> part.status.ifBlank { "—" }
+}
+
+/** 复制用户消息到系统剪贴板。 */
+private fun copyToClipboard(context: Context, text: String) {
+    if (text.isBlank()) return
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("OpenCode message", text))
+    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
 }
 
 private fun toolDisplayName(name: String): String = when (name.lowercase()) {

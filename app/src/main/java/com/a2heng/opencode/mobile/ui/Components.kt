@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
@@ -70,6 +71,19 @@ fun rememberDeviceCornerRadius(): Dp {
         } else 0
         if (px > 0) with(density) { px.toDp() } else 24.dp
     }
+}
+
+/**
+ * 展开卡片内容区的统一下限/上限：上限避开手机 R 角的横向区域，
+ * 所有详情卡（工具/思考）共用这一组高度，避免有的太矮、有的顶出圆角。
+ */
+@Composable
+fun rememberDialogContentHeight(): Pair<Dp, Dp> {
+    val screen = LocalConfiguration.current.screenHeightDp.dp
+    val corner = rememberDeviceCornerRadius()
+    val maxHeight = (screen - corner * 2 - 120.dp).coerceAtLeast(300.dp)
+    val minHeight = (maxHeight * 0.62f).coerceAtLeast(240.dp)
+    return minHeight to maxHeight
 }
 
 @Composable

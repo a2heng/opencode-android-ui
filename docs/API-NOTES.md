@@ -150,3 +150,19 @@ data: {"id":"evt_...","created":...,"type":"session.text.delta","data":{...}}
 - `GET /api/command` → `{ data: [{ name, description }] }`
 - `POST /api/session/{id}/command`，body `{ name, text, files?, delivery? }`（`text` 是命令参数）
 - `POST /api/shell`，body `{ command, cwd? }`，用于「新建文件夹」（`mkdir -p`）这类一次性命令。
+
+## 表单 / question（v2.2.x）
+
+- 语义照官方 `packages/app/src/session/requests/question-machine.ts`：
+  - **单选**（`string` + options）：`pick(value)` → `selected = [value]`、`customSelected = false`；再点同一项不会取消。
+  - **输入自定义文字**：清空单选并置 `customSelected = true`。
+  - **多选**（`multiselect`）：toggle，自定义文字与选项可以共存。
+  - 提交时单选取 `selected[0]`，否则取输入框文字；多选提交 `selected` 数组。
+- 客户端实现坑：`mutableStateMapOf` 的 value 如果是普通 `MutableList`，`add/remove` **不会触发重组**（看起来“点了没反应”），必须换成 `SnapshotStateList`（`mutableStateListOf`）。
+- 选项的选中标记要自己画（单选 16dp 圆点 / 多选方块），不要只靠底色差异。
+
+## 后台 shell 的已运行时长
+
+- `GET /api/shell?location[directory]=…` 返回的 `Shell.Info` 带 `time.started`（毫秒时间戳）；
+  悬浮球用它显示 `12s` / `3m05s` / `1h02m`，每秒刷新，不需要额外接口。
+- `/api/shell`、`/api/shell/{id}/output`、`DELETE /api/shell/{id}` 都是 **location 作用域**，务必带 `location[directory]`。

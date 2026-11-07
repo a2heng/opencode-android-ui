@@ -122,6 +122,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -2410,7 +2411,7 @@ private fun PickerSheet(title: String, rows: List<PickerRow>, onDismiss: () -> U
 private fun FormDialog(form: FormInfo, onDismiss: () -> Unit, onSubmit: (JsonObject) -> Unit) {
     val values = remember(form.id) { mutableStateMapOf<String, String>() }
     val bools = remember(form.id) { mutableStateMapOf<String, Boolean>() }
-    val multis = remember(form.id) { mutableStateMapOf<String, MutableList<String>>() }
+    val multis = remember(form.id) { mutableStateMapOf<String, SnapshotStateList<String>>() }
 
     AppDialog(
         onDismissRequest = onDismiss,
@@ -2431,7 +2432,7 @@ private fun FormDialog(form: FormInfo, onDismiss: () -> Unit, onSubmit: (JsonObj
                             "multiselect" -> put(
                                 f.key,
                                 buildJsonArray {
-                                    (multis[f.key] ?: mutableListOf()).forEach { add(JsonPrimitive(it)) }
+                                    (multis[f.key] ?: emptyList()).forEach { add(JsonPrimitive(it)) }
                                 },
                             )
                             "integer" -> values[f.key]?.toLongOrNull()?.let { put(f.key, JsonPrimitive(it)) }
@@ -2456,7 +2457,7 @@ private fun FieldEditor(
     field: FormField,
     values: MutableMap<String, String>,
     bools: MutableMap<String, Boolean>,
-    multis: MutableMap<String, MutableList<String>>,
+    multis: MutableMap<String, SnapshotStateList<String>>,
 ) {
     Column {
         Text(
@@ -2534,8 +2535,9 @@ private fun FieldEditor(
 }
 
 @Composable
-private fun OptionChips(field: FormField, multis: MutableMap<String, MutableList<String>>, values: MutableMap<String, String>) {
-    val selected = multis.getOrPut(field.key) { mutableListOf() }
+private fun OptionChips(field: FormField, multis: MutableMap<String, SnapshotStateList<String>>, values: MutableMap<String, String>) {
+    // 必须是 SnapshotStateList：普通 MutableList 改了不会触发重组，点了看起来「没反应」
+    val selected = multis.getOrPut(field.key) { mutableStateListOf() }
     val primary = MaterialTheme.colorScheme.primary
     val isMulti = field.type == "multiselect"
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
@@ -2552,12 +2554,13 @@ private fun OptionChips(field: FormField, multis: MutableMap<String, MutableList
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickableNoRipple {
-                        if (isSelected) selected.remove(option.value)
-                        else if (isMulti) selected.add(option.value)
-                        else {
+                        // 与官方前端一致：单选再点同一项不会取消；多选是切换；
+                        // 选选项会关掉自定义回答（清空自定义文字），输入文字则取消单选。
+                        if (isMulti) {
+                            if (isSelected) selected.remove(option.value) else selected.add(option.value)
+                        } else {
                             selected.clear()
                             selected.add(option.value)
-                            // 单选选中后清空自定义输入
                             values[field.key] = ""
                         }
                     },

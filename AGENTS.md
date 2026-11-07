@@ -37,7 +37,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 对话页顶栏（自定义，不用 M3 `TopAppBar`）：
   - 左侧：40dp 圆形返回按钮 + 标题（`titleSmall`，单行省略）+ 模型（`labelSmall`，单行省略，点击换模型）。
   - 右侧：三个 **38dp 方形块**（两行：小标签 + 值），从左到右 **模式（Agent）/ 命中 / 上下文**；再右边是 40dp 圆形「打开会话」按钮。
-  - 顶栏内容高度 52dp，背景与底部输入区一致（`surface` + `tonalElevation = 3.dp`），不要用 background 色融进内容。
+  - 顶栏内容高度 46dp（压缩过；原来 52dp），背景与底部输入区一致（`surface` + `tonalElevation = 3.dp`），不要用 background 色融进内容。
   - 方块里的 `Text` 必须显式写 `lineHeight`（约 9sp / 11sp），否则默认行高会把第二行裁掉。
   - 圆形按钮尺寸保持不变（40dp），和输入区左右按钮一致。
 - 标题里**不要再显示运行状态文字**（「正在思考」「正在使用工具」「已加入队列」「已插入当前回答」等）。运行状态只放在消息区的 LiveBubble 里。
@@ -48,16 +48,23 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 每行：**左边命中率按钮（整块可点 → 缓存页）**，右边 **3 个点**；3 个点要紧凑（30dp 按钮 / 17dp 图标），不要占太多右侧空间，避免误触命中率。
 - 时间、目录、模型、token 放进副标题一行，避免右侧再堆一列。
 - 命中率 0 / 没有数据时用中性色，不要显示成红色告警。
+- **列表上方只留一行**（不要标题、不要刷新按钮）：`🔍 搜索` → `共 N 个会话` → 右侧 `按文件夹 / 按时间` → 最右 **28dp 圆形「+」新建**（横竖屏都在右上角）。
+  - 搜索平时只是一个放大镜按钮，点开才在原来那行位置展开紧凑输入框（自动聚焦），点 × 关掉搜索并清空关键字。
+  - `按文件夹 / 按时间` 是窄文本按钮（`SortLabel`，labelSmall + 2dp padding），不要用 `TextButton` 的大留白。
+  - 不要底部 ExtendedFAB「新建会话」。
+- **行高要压缩**：外层上下 5dp、标题 `bodyMedium`、副标题 `labelSmall`，分组头（运行中/文件夹）上下 6/3dp；一屏要多显示几条。
 
 ### 4.3 对话页 / 缓存页导航
 
-- 对话页和缓存页都**覆盖在会话列表之上**（`AppRoot` 里叠放），预测式返回时滑走并露出真正的上一页；不要用替换内容的方式（否则返回背景是黑的）。
-- 进入要**有动画**（从右侧滑入 + 圆角），离开用预测式返回、**不要淡化**，滑动幅度要大（当前 `translationX = 0.85 * width`，scale 0.10）。
+- 竖屏：对话页和缓存页都**覆盖在会话列表之上**（`AppRoot` 里叠放），预测式返回时滑走并露出真正的上一页；不要用替换内容的方式（否则返回背景是黑的）。
+- 竖屏进入要**有动画**（从右侧滑入 + 圆角），离开用预测式返回、**不要淡化**，滑动幅度要大（当前 `translationX = 0.85 * width`，scale 0.10）。
+- **宽屏（宽 ≥ 600dp）不走覆盖**：会话页直接是「左列表 + 右聊天」双栏，聊天在右栏里，不整页盖住列表（见 §4.10）。
 - 顶栏返回 / 展开按钮要有**按钮背景**（`FilledTonalIconButton`，40dp，与输入区左右按钮同尺寸）；图标 20dp。
 
 ### 4.4 打开会话（标签页 / 卷帘）
 
 - 「打开的会话」= 整个 App 里**处于打开状态**的会话，不是「正在运行」。`openSessions` 最多 20 个。
+- **只能手动移除**：只有点 × 或删除会话才会移出；App 重启、刷新会话、运行结束都**不能**自动消失。`openSessions` 持久化到 SharedPreferences（`open_sessions`，每行一个 id），`refreshSessions` 后 `restoreOpenSessions()` 恢复；运行中 / 有后台 shell 不会自动塞进来（入口还是"点开这个会话"）。
 - 展开是**卷帘动画**（从上往下 `expandVertically`），卡片占满可视宽度，左右边距和底部输入区对齐（6dp），点外面收起。
 - 每一项右侧有 **×** 关闭该标签；关闭当前会话时自动切到下一个，没了就回列表。
 - 卡片头部有总数量和一个 **×**，表示退出多会话切换状态（关掉全部打开的会话回到列表）。
@@ -102,9 +109,10 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - diff 每行 `fontSize = 10.sp` 时必须显式 `lineHeight = 12.sp`（默认 body 行高会虚高），行间 padding 0.5dp。详情弹窗的圆角只加在**外层卡片**（工具详情 16dp、AppDialog 18dp，不用设备 R 角），内部滚动内容不要再单独裁 R 角。
 - Markdown：自己实现的渲染器要支持标题 `#`、列表（`-`/`*`/`+`/数字，显示为 • / 数字）、引用 `>`、分隔线 `---`、竖线表格（带网格线），以及行内 code/粗体/斜体/链接；最终回答和思考详情都要用 `MarkdownText`。展开后的字号要和卡片预览一致（工具 10.5sp；思考详情用 compact Markdown 11sp），别放大导致要滚很多屏。
 - 精简模式也要有一行「思考」（图标 + 思考 + 字数 + 展开），点开看完整思考。
-- 工具卡片和思考一样**直接出现**，不要 `AnimatedVisibility` 的展开/滑入动画（滚动或新工具都不要），消息 item 也不做淡入淡出。
+- 卡片出现/消失统一用 **`Components.kt` 的 `CardMotion`**：淡入 110ms + 极小缩放（0.985 → 1）、淡出 90ms，**没有位移**；消息 item 用 `animateItem(fadeInSpec = CardMotion.FadeIn, placementSpec = null, fadeOutSpec = CardMotion.FadeOut)`。不要在其他地方另写动画参数。
 - 消息合并必须 `collapseMessages(page.messages).asReversed()` 后再拼接，**不要 `sortedBy { created }`**；否则队列消息的入队时间会把上一轮工具挤到 pending 后面。
-- 消息 item **不做任何出现/消失动画**（不要 `animateItem` 的 fadeIn/fadeOut：消息合并时会留半透明残影，看起来像卡片“滑了一下”），也不要 placementSpec；工具/思考/正文全部直接凭空出现与消失。
+- 消息 item 不要 `placementSpec`（位置动画会抖）；工具/思考/正文只能跟着 `CardMotion` 淡入淡出，不允许 `slideIn`/`expandVertically` 这类位移或高度动画。
+- 详情层（`DetailOverlay` / `SideDetailPane`）的遮罩和卡片必须由**同一个 `Animatable` 进度**驱动（`rememberOverlayProgress`）：遮罩 `alpha = 0.42f * progress`，卡片 `alpha/scale` 也跟 progress；禁止一上来就把遮罩铺满（会“闪一下”）。
 - Pending 薄行按**旧→新**从上到下排列（新的在最下面），最多 150dp 高。
 - 正文仍是单列：用户气泡靠右，助手内容和工具靠左（不要做左右分栏或左右气泡，用户已确认没有必要）。
 
@@ -122,7 +130,10 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 外观设置 / 主题色：横向色卡（圆形色块 + 短标签），不要用竖排 OptionRow；外观三张卡（跟随系统=黑白渐变、浅色=白、深色=黑），
   主题色至少 blue/purple/cyan/green/orange/pink/red/teal + 黑白 + 系统取色；点一下立即生效。
 - 卡片/顶栏/底栏的背景要有层次：浅色下 background 用灰白、surfaceVariant 要明显深一点；深色下 surface 比 background 亮、surfaceVariant 更亮。
-- opencode 的 question/form：选项在上面，自定义输入在最下面；单选选中后自定义输入禁用；输入自定义内容时自动取消单选；底部必须有显眼的「提交」按钮（用 `Button`，不要只靠 TextButton），并处理 IME 遮挡（`imePadding`）。
+- opencode 的 question/form：语义照官方 `packages/app/src/session/requests/question-machine.ts`：**单选** `pick(value)` = `selected=[value]` 且关掉自定义（再点同一项不取消）；**输入自定义文字** = 清空单选并置 `customSelected`；**多选** 是和自定义共存的 toggle。选项必须画出选中标记（单选圆点 / 多选方块打勾）+ `primaryContainer` 底色 + primary 边框。
+- 表单状态**必须用可观察容器**：`mutableStateMapOf` 的 value 用 `SnapshotStateList`（`mutableStateListOf`）或 `mutableStateOf`；普通 `MutableList` 改了不会触发重组，表现就是“点了没反应”。
+- 单选选中后输入框仍然可用：点输入框获得焦点就取消上面的单选（否则永远改不回自定义答案）；不要把自定义输入 `enabled = false`。
+- 底部必须有显眼的「提交」按钮（用 `Button`，不要只靠 TextButton），并处理 IME 遮挡（`imePadding`）。
 - 外观设置（跟随系统/浅色/深色）对**所有页面**生效，包括断开后的登录页。
 
 ### 4.8 后台 shell
@@ -141,8 +152,20 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 会话缓存详情用内存缓存（最多 12 个会话）：第二次打开直接显示，后台再刷新。
 - 只拉最新 100 条消息算 steps；总量/命中率用服务端 `session.tokens`，成本用 `session.cost`，不要为了统计拉全历史。
 - `stepsOf` / `SessionCache` 计算放 `Dispatchers.Default`，不要在主线程做。
+- 缓存页**没有刷新按钮**：打开页面时自动加载/刷新。
 
+### 4.10 屏幕自适应（竖屏 / 横屏）
 
+- 判定用 `rememberIsWideLayout()`（`screenWidthDp >= 600`，横屏手机/平板），不要用 orientation。
+- 宽屏外壳：左侧 **64dp rail**（图标 + 9sp 标签，选中用 `primaryContainer` 圆角块）代替底部导航，只占宽度不占高度。
+  - `navigationBarsPadding()` 要加在 `.width(64.dp)` **之前**，否则横屏三键导航会把 rail 挤没。
+- **没有全局顶栏**：不要每页再放「标题 + IP + 版本」那行（用户明确嫌多余）。页面顶部只靠 `statusBarsPadding()` 避让状态栏。
+- 宽屏内容根节点必须 `Surface(color = background, contentColor = onBackground)`，否则各页标题会是默认黑色（深色主题下看不见）。
+- 会话页宽屏 = master-detail：左 300dp 会话列表 + 1dp 分隔线 + 右聊天（`ChatScreen(wide = true)`）；没选会话时右栏显示「从左边选一个会话」。
+- 聊天详情宽屏用 `SideDetailPane`（右侧 380dp supporting pane，聊天保持可见），竖屏用 `DetailOverlay`。
+- 文件页宽屏 = 左 320dp 列表 + 右预览，选文件不再把列表顶掉。
+- 竖屏保持底部导航 + 全屏子页；聊天顶栏 46dp。
+- 所有页面**不要刷新按钮**：`MainScreen` 的 `LaunchedEffect(tab)` 进入页面自动刷新（会话/目录/PTY），回到前台由 `refreshOnResume()` 统一刷新。
 
 ## 5. 与服务端的交互（效率）
 
@@ -181,7 +204,7 @@ app/src/main/java/com/a2heng/opencode/mobile/
 │   ├── AppModel.kt            # 全局状态、事件、队列、重连、消息缓存与分页
 │   └── UpdateClient.kt        # GitHub Release 检查/下载（仅保留功能，不发版）
 └── ui/
-    ├── AppRoot.kt             # 主框架 + 列表/对话/缓存页叠放
+    ├── AppRoot.kt             # 主框架：竖屏底部导航 / 横屏 rail + 会话双栏 + 各页外壳（无全局顶栏）
     ├── ChatScreen.kt          # 对话、标题、输入区、工具卡片、打开会话卷帘
     ├── SessionCacheScreen.kt  # 单会话缓存页
     ├── SessionsScreen.kt      # 会话列表（命中率在左、三点在右）

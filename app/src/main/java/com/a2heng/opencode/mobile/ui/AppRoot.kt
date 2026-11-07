@@ -50,10 +50,15 @@ import com.a2heng.opencode.mobile.data.AppModel
 fun AppRoot(model: AppModel) {
     if (!model.connected) {
         ConnectScreen(model)
-    } else if (model.current != null) {
-        ChatScreen(model, model.current!!)
-    } else {
+        return
+    }
+    // 会话页盖在列表上：预测式返回时整页滑走，露出下面的列表（真正的上一页）
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         MainScreen(model)
+        val current = model.current
+        if (current != null) {
+            ChatScreen(model, current)
+        }
     }
 }
 

@@ -248,11 +248,12 @@ fun ChatScreen(model: AppModel, session: SessionInfo) {
 
     Scaffold(
         modifier = Modifier.graphicsLayer {
-            val scale = 1f - 0.05f * backProgress
+            val scale = 1f - 0.07f * backProgress
             scaleX = scale
             scaleY = scale
-            alpha = 1f - 0.15f * backProgress
-            translationX = 28.dp.toPx() * backProgress
+            // 往右滑走，左下露出下面的会话列表
+            translationX = size.width * 0.32f * backProgress
+            alpha = 1f - 0.08f * backProgress
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {

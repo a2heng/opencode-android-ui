@@ -487,6 +487,69 @@ private val ANSI_OSC = Regex("\u001B\\][^\u0007]*\u0007")
 fun stripAnsi(input: String): String =
     ANSI_CSI.replace(ANSI_OSC.replace(input, ""), "").replace("\r\n", "\n").replace('\r', '\n')
 
+// ---------------------------------------------------------------------------
+// VCS / Git（/api/vcs*，location 作用域）
+// ---------------------------------------------------------------------------
+
+data class VcsBranch(val current: String = "", val default: String = "")
+
+data class VcsInfo(
+    val provider: String = "",
+    val branch: VcsBranch = VcsBranch(),
+) {
+    val isGit: Boolean get() = provider.equals("git", ignoreCase = true)
+    val label: String get() = branch.current.ifBlank { branch.default }.ifBlank { "—" }
+}
+
+data class VcsFileStatus(
+    val file: String = "",
+    val additions: Int = 0,
+    val deletions: Int = 0,
+    val status: String = "", // added|deleted|modified
+)
+
+data class VcsDiffFile(
+    val file: String = "",
+    val patch: String = "",
+    val additions: Int = 0,
+    val deletions: Int = 0,
+    val status: String = "",
+    val more: Boolean = false,
+)
+
+private fun JsonObject.vcsDataObj(): JsonObject =
+    // opencode server 常返回 {location, data:{...}}；也兼容直接返回对象
+    (this["data"] as? JsonObject) ?: this
+
+fun parseVcsInfo(o: JsonObject?): VcsInfo {
+    if (o == null) return VcsInfo()
+    val d = o.vcsDataObj()
+    val b = d.obj("branch")
+    return VcsInfo(
+        provider = d.str("provider") ?: o.str("provider") ?: "",
+        branch = VcsBranch(
+            current = b?.str("current") ?: d.str("current") ?: "",
+            default = b?.str("default") ?: d.str("default") ?: "",
+        ),
+    )
+}
+
+fun parseVcsFileStatus(o: JsonObject): VcsFileStatus = VcsFileStatus(
+    file = o.str("file") ?: "",
+    additions = (o.long("additions")).toInt(),
+    deletions = (o.long("deletions")).toInt(),
+    status = o.str("status") ?: "",
+)
+
+fun parseVcsDiffFile(o: JsonObject): VcsDiffFile = VcsDiffFile(
+    file = o.str("file") ?: "",
+    patch = o.str("patch") ?: "",
+    additions = (o.long("additions")).toInt(),
+    deletions = (o.long("deletions")).toInt(),
+    status = o.str("status") ?: "",
+    more = o.bool("more"),
+)
+
 /**
  * 文本解码：先严格 UTF-8，失败再按国标 GB18030（兼容 GBK/GB2312），最后宽松 UTF-8 兜底。
  * 服务端 `/api/fs/read` 给的是原始字节，所以这里能自己判断编码。

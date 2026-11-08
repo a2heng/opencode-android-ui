@@ -31,11 +31,16 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
@@ -44,6 +49,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import android.net.Uri
+import android.widget.FrameLayout
+import android.widget.MediaController
+import android.widget.VideoView
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Audiotrack
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material3.Icon
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -252,4 +269,112 @@ fun formatRelative(ms: Long): String {
 fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier {
     val source = remember { MutableInteractionSource() }
     return clickable(interactionSource = source, indication = null, onClick = onClick)
+}
+
+/**
+ * 内嵌媒体预览（视频/音频），基于系统 VideoView + MediaController，无额外依赖。
+ * 文件由 AppModel 写入 cacheDir 并以 file:// Uri 传入。
+ */
+@Composable
+fun MediaPreview(
+    uri: Uri,
+    kind: String, // "video" | "audio"
+    title: String,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var error by remember(uri) { mutableStateOf<String?>(null) }
+    val isVideo = kind == "video"
+
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!isVideo) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                    .padding(14.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Audiotrack,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("音频预览", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (isVideo) Modifier.heightIn(min = 180.dp, max = 420.dp) else Modifier.height(72.dp))
+                .background(Color.Black.copy(alpha = if (isVideo) 1f else 0.04f), RoundedCornerShape(12.dp)),
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    FrameLayout(ctx).apply {
+                        val vv = VideoView(ctx)
+                        val mc = MediaController(ctx)
+                        mc.setAnchorView(this)
+                        vv.setMediaController(mc)
+                        vv.setOnPreparedListener { mp ->
+                            mp.isLooping = false
+                            if (!isVideo) mc.show(0)
+                        }
+                        vv.setOnErrorListener { _, _, _ ->
+                            error = "无法播放此${if (isVideo) "视频" else "音频"}（格式可能不受支持）"
+                            true
+                        }
+                        addView(
+                            vv,
+                            FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            ),
+                        )
+                        tag = vv
+                        vv.setVideoURI(uri)
+                        vv.start()
+                    }
+                },
+                update = { frame ->
+                    val vv = frame.tag as? VideoView ?: return@AndroidView
+                    val current = vv.tag as? Uri
+                    if (current != uri) {
+                        vv.tag = uri
+                        vv.setVideoURI(uri)
+                        vv.start()
+                    }
+                },
+                onRelease = { frame ->
+                    (frame.tag as? VideoView)?.stopPlayback()
+                },
+            )
+            if (isVideo) {
+                // 角标提示
+                Text(
+                    "视频",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+        }
+        if (error != null) {
+            Text(
+                error!!,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
 }

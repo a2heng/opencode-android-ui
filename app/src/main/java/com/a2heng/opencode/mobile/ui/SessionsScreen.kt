@@ -70,7 +70,7 @@ fun SessionsScreen(
     onOpenCache: (SessionInfo) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    var grouped by rememberSaveable { mutableStateOf(true) }
+    val grouped = model.sessionsGroupByFolder
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     val list = remember(model.sessions, query) {
         val q = query.trim().lowercase()
@@ -179,9 +179,9 @@ fun SessionsScreen(
                         maxLines = 1,
                     )
                     Spacer(Modifier.weight(1f))
-                    SortLabel("按文件夹", grouped) { grouped = true }
+                    SortLabel("按文件夹", grouped) { model.updateSessionsGroupByFolder(true) }
                     Spacer(Modifier.width(8.dp))
-                    SortLabel("按时间", !grouped) { grouped = false }
+                    SortLabel("按时间", !grouped) { model.updateSessionsGroupByFolder(false) }
                 }
                 Spacer(Modifier.width(8.dp))
                 // 新建会话：圆形 +，固定在右上角

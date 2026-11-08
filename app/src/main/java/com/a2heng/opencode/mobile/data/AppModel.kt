@@ -98,6 +98,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     )
         private set
 
+    /** 会话列表排序：true=按文件夹分组，false=按时间 */
+    var sessionsGroupByFolder by mutableStateOf(prefs.getBoolean("sessions_group_by_folder", true))
+        private set
+
     /** 主题色：mono（默认）/ dynamic（Material You）/ blue / purple / orange / cyan */
     var themeMode by mutableStateOf(prefs.getString("theme_mode", "mono") ?: "mono")
         private set
@@ -332,6 +336,94 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var openFileMarkdown by mutableStateOf(false)
         private set
+    /** 音视频预览：写到缓存文件后的本地 URI */
+    var openFileMediaUri by mutableStateOf<android.net.Uri?>(null)
+        private set
+    /** "audio" / "video" */
+    var openFileMediaKind by mutableStateOf<String?>(null)
+        private set
+    var openFileBytesSize by mutableStateOf(0L)
+        private set
+
+    // ---- Git / VCS（上下文按钮打开）-----------------------------------------
+    var gitDirectory by mutableStateOf<String?>(null)
+        private set
+    var gitInfo by mutableStateOf(VcsInfo())
+        private set
+    var gitStatus by mutableStateOf<List<VcsFileStatus>>(emptyList())
+        private set
+    var gitDiffFiles by mutableStateOf<List<VcsDiffFile>>(emptyList())
+        private set
+    var gitLoading by mutableStateOf(false)
+        private set
+    var gitError by mutableStateOf<String?>(null)
+        private set
+    var gitSelectedFile by mutableStateOf<String?>(null)
+        private set
+    var gitMode by mutableStateOf("working") // working | branch
+        private set
+    var gitBaseLabel by mutableStateOf<String?>(null)
+        private set
+
+    fun openGit(directory: String) {
+        val dir = directory.ifBlank { current?.directory.orEmpty() }.ifBlank { homeDir }
+        if (dir.isBlank()) return
+        gitDirectory = dir
+        gitSelectedFile = null
+        gitError = null
+        gitInfo = VcsInfo()
+        gitStatus = emptyList()
+        gitDiffFiles = emptyList()
+        gitBaseLabel = null
+        gitMode = "working"
+        gitLoading = true
+        loadGit("working")
+    }
+
+    fun closeGit() {
+        gitDirectory = null
+        gitSelectedFile = null
+        gitError = null
+        gitLoading = false
+    }
+
+    fun loadGit(mode: String = gitMode) {
+        val c = client ?: return
+        val dir = gitDirectory ?: return
+        viewModelScope.launch {
+            gitLoading = true
+            gitError = null
+            gitMode = mode
+            if (mode == "working") gitStatus = emptyList()
+            gitDiffFiles = emptyList()
+            try {
+                val (info, base, status, diffs) = withContext(Dispatchers.IO) {
+                    val i = runCatching { c.vcsInfo(dir) }.getOrDefault(VcsInfo())
+                    val b = runCatching { c.vcsBase(dir) }.getOrNull()
+                    val s = if (mode == "working") runCatching { c.vcsStatus(dir) }.getOrDefault(emptyList()) else emptyList()
+                    val d = runCatching { c.vcsDiff(dir, mode) }.getOrDefault(emptyList())
+                    Quad(i, b, s, d)
+                }
+                gitInfo = info
+                gitBaseLabel = base?.str("name") ?: base?.str("ref") ?: base?.str("base")
+                gitStatus = status
+                gitDiffFiles = diffs
+                if (gitSelectedFile != null && diffs.none { it.file == gitSelectedFile }) {
+                    gitSelectedFile = diffs.firstOrNull()?.file
+                }
+            } catch (e: Exception) {
+                gitError = e.message ?: "加载 Git 信息失败"
+            } finally {
+                gitLoading = false
+            }
+        }
+    }
+
+    private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+    fun selectGitFile(file: String?) {
+        gitSelectedFile = file
+    }
 
     // ---- 终端 ---------------------------------------------------------------
     var ptys by mutableStateOf<List<PtyInfo>>(emptyList())
@@ -431,6 +523,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun updateDetailLevel(level: String) {
         detailLevel = level
         prefs.edit().putString("detail_level", level).apply()
+    }
+
+    fun updateSessionsGroupByFolder(grouped: Boolean) {
+        sessionsGroupByFolder = grouped
+        prefs.edit().putBoolean("sessions_group_by_folder", grouped).apply()
     }
 
     fun updateThemeMode(mode: String) {
@@ -1422,14 +1519,34 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         openFileBinary = false
         openFileMarkdown = false
         openFileMime = ""
+        openFileMediaUri = null
+        openFileMediaKind = null
+        openFileBytesSize = 0L
         openFileLoading = true
         viewModelScope.launch {
             try {
                 val file = withContext(Dispatchers.IO) { c.readFileRaw(path) }
                 openFileMime = file.mime
+                openFileBytesSize = file.bytes.size.toLong()
+                val lower = path.substringAfterLast('.', "").lowercase()
+                val mediaKind = when {
+                    file.mime.startsWith("video/") || lower in VIDEO_EXTS -> "video"
+                    file.mime.startsWith("audio/") || lower in AUDIO_EXTS -> "audio"
+                    else -> null
+                }
                 when {
-                    file.mime.startsWith("image/") -> {
-                        val bmp = withContext(Dispatchers.Default) { decodeBitmapCapped(file.bytes, 2048) }
+                    mediaKind != null -> {
+                        val uri = withContext(Dispatchers.IO) { writeMediaCache(path, file.bytes, lower) }
+                        if (uri != null) {
+                            openFileMediaKind = mediaKind
+                            openFileMediaUri = uri
+                        } else {
+                            openFileBinary = true
+                            openFileText = "无法准备${if (mediaKind == "video") "视频" else "音频"}预览（${file.bytes.size / 1024} KB）"
+                        }
+                    }
+                    file.mime.startsWith("image/") || lower in IMAGE_EXTS -> {
+                        val bmp = withContext(Dispatchers.Default) { decodeBitmapCapped(file.bytes, 4096) }
                         if (bmp != null) {
                             openFileImage = bmp
                         } else {
@@ -1439,12 +1556,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     }
                     looksBinary(file.bytes) -> {
                         openFileBinary = true
-                        openFileText = "二进制文件（${file.bytes.size / 1024} KB），暂不支持预览"
+                        openFileText = "二进制文件（${file.bytes.size / 1024} KB）\nMIME: ${file.mime.ifBlank { "unknown" }}\n\n暂不支持预览，可在上级目录查看文件信息。"
                     }
                     else -> {
                         val text = withContext(Dispatchers.Default) { decodeText(file.bytes) }
-                        openFileMarkdown = path.substringAfterLast('.', "").lowercase() in
-                            setOf("md", "markdown")
+                        openFileMarkdown = lower in setOf("md", "markdown", "mdx")
                         openFileText = if (text.length > 400_000) {
                             text.take(400_000) + "\n\n…（文件过大，已截断）"
                         } else {
@@ -1467,6 +1583,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         openFileBinary = false
         openFileMarkdown = false
         openFileMime = ""
+        openFileMediaUri = null
+        openFileMediaKind = null
+        openFileBytesSize = 0L
     }
 
     /** 按 max 边长采样解码，避免 4K 图片直接把内存打爆。 */
@@ -1477,6 +1596,26 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         while (bounds.outWidth / sample > max || bounds.outHeight / sample > max) sample *= 2
         val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
         return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+
+    private fun writeMediaCache(path: String, bytes: ByteArray, ext: String): android.net.Uri? {
+        return runCatching {
+            val dir = java.io.File(getApplication<Application>().cacheDir, "media-preview")
+            if (!dir.exists()) dir.mkdirs()
+            // 清理旧预览，避免缓存膨胀
+            dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(6)?.forEach { it.delete() }
+            val safeExt = ext.ifBlank { "bin" }.take(10).filter { it.isLetterOrDigit() }
+            val name = "preview_${path.hashCode()}_${System.currentTimeMillis()}.$safeExt"
+            val f = java.io.File(dir, name)
+            f.writeBytes(bytes)
+            android.net.Uri.fromFile(f)
+        }.getOrNull()
+    }
+
+    private companion object {
+        val VIDEO_EXTS = setOf("mp4", "mkv", "webm", "mov", "avi", "m4v", "3gp", "ts")
+        val AUDIO_EXTS = setOf("mp3", "wav", "m4a", "aac", "ogg", "flac", "opus", "oga", "wma")
+        val IMAGE_EXTS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "svg")
     }
 
     // =========================================================================

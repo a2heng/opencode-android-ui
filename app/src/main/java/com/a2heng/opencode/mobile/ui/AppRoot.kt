@@ -79,6 +79,16 @@ fun AppRoot(model: AppModel) {
                 },
             )
         }
+        val gitDir = model.gitDirectory
+        if (gitDir != null) {
+            DetailOverlay(onDismiss = { model.closeGit() }) { close ->
+                GitScreen(
+                    model = model,
+                    directory = gitDir,
+                    onBack = close,
+                )
+            }
+        }
     }
 }
 

@@ -250,6 +250,26 @@ class OcClient(rawBase: String, private val password: String) {
         if (directory.isNullOrBlank()) "" else
             "?location%5Bdirectory%5D=" + java.net.URLEncoder.encode(directory, "UTF-8")
 
+    // ---- VCS / Git（location 作用域）----------------------------------------
+    suspend fun vcsInfo(directory: String): VcsInfo =
+        parseVcsInfo(get("/api/vcs" + locationQuery(directory)) as? JsonObject)
+
+    suspend fun vcsStatus(directory: String): List<VcsFileStatus> =
+        unwrapArray(get("/api/vcs/status" + locationQuery(directory))).mapNotNull { item ->
+            (item as? JsonObject)?.let { parseVcsFileStatus(it) }
+        }
+
+    suspend fun vcsBase(directory: String): JsonObject? =
+        unwrapObject(get("/api/vcs/base" + locationQuery(directory)))
+
+    suspend fun vcsDiff(directory: String, mode: String = "working"): List<VcsDiffFile> {
+        val base = locationQuery(directory)
+        val q = if (base.contains("?")) "$base&mode=${urlEncode(mode)}" else "?mode=${urlEncode(mode)}"
+        return unwrapArray(get("/api/vcs/diff$q")).mapNotNull { item ->
+            (item as? JsonObject)?.let { parseVcsDiffFile(it) }
+        }
+    }
+
     suspend fun shells(directory: String? = null): List<ShellInfo> =
         unwrapArray(get("/api/shell" + locationQuery(directory))).mapNotNull { item ->
             val o = item as? JsonObject ?: return@mapNotNull null

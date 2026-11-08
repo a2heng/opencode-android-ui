@@ -75,9 +75,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.AttachFile
@@ -181,14 +183,9 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     // 思考详情：live 表示点的是底部流式区，内容要继续跟着 model.liveReasoning 更新
     var reasoningView by remember { mutableStateOf<ReasoningView?>(null) }
     var fileTarget by remember { mutableStateOf<String?>(null) }
-    // 文本里的路径 → 文件预览卡（相对路径按当前会话目录解析）
+    // 文本里的路径 → 文件预览卡。支持 file://、~/、绝对路径，以及相对当前会话目录的路径。
     val openPath: (String) -> Unit = { raw ->
-        val abs = when {
-            raw.startsWith("~/") && model.homeDir.isNotBlank() ->
-                model.homeDir.trimEnd('/') + raw.removePrefix("~")
-            raw.startsWith("/") -> raw
-            else -> raw
-        }
+        val abs = resolveFileRef(raw, session.directory, model.homeDir)
         fileTarget = abs
         model.openFile(abs)
     }
@@ -399,7 +396,22 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                         "上下文",
                         contextPct?.let { "${it.roundToInt()}%" } ?: "—",
                         valueColor = contextColor,
-                    ) { model.openCache(session) }
+                    ) { model.openGit(session.directory) }
+                    Spacer(Modifier.width(3.dp))
+                    FilledTonalIconButton(
+                        onClick = { model.openGit(session.directory) },
+                        modifier = Modifier.size(38.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Rounded.AccountTree,
+                            contentDescription = "Git",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                     Spacer(Modifier.width(3.dp))
                     FilledTonalIconButton(
                         onClick = { openMenu = true },
@@ -844,7 +856,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
         // 宽屏：详情做成右侧面板（聊天仍然可见），点另一张卡直接换内容
         detailTool?.let { tool ->
             SideDetailPane(onDismiss = { detailToolID = null }) { close ->
-                ToolDetailCard(tool, session.directory, close)
+                ToolDetailCard(tool, session.directory, close, openPath)
             }
         }
         reasoningShown?.let { view ->
@@ -855,7 +867,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     } else {
         detailTool?.let { tool ->
             DetailOverlay(onDismiss = { detailToolID = null }) { close ->
-                ToolDetailCard(tool, session.directory, close)
+                ToolDetailCard(tool, session.directory, close, openPath)
             }
         }
         reasoningShown?.let { view ->
@@ -1231,6 +1243,35 @@ private fun DialogBackButton(onClick: () -> Unit) {
 }
 
 @Composable
+private fun InfoChip(
+    label: String,
+    value: String,
+    valueColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
+    onClick: (() -> Unit)? = null,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        modifier = Modifier
+            .height(34.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), shape)
+            .then(if (onClick != null) Modifier.clickableNoRipple(onClick) else Modifier)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun InfoSquare(
     label: String,
     value: String,
@@ -1332,7 +1373,7 @@ private fun MessageItem(
         msg.parts.forEach { part ->
             when (part) {
                 is Part.Reasoning -> ReasoningBlock(part.text, detail, onOpenReasoning = onOpenReasoning)
-                is Part.Tool -> ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground)
+                is Part.Tool -> ToolBlock(part, detail, onOpenTool, msg.tokens?.hitRate, baseDir, onBackground, onOpenPath)
                 is Part.Text -> AssistantText(part.text, onOpenPath)
             }
         }
@@ -1616,6 +1657,7 @@ private fun ToolBlock(
     rate: Double? = null,
     baseDir: String = "",
     onBackground: () -> Unit = {},
+    onOpenFile: ((String) -> Unit)? = null,
 ) {
     val hasDiff = part.diff.isNotBlank()
     val cleanPatch = if (hasDiff) cleanDiff(part.diff) else ""
@@ -1779,15 +1821,23 @@ private fun ToolBlock(
                 }
             }
             if (subtitle.isNotBlank()) {
+                val canOpenFile = (isReadTool || isEditTool || isWriteTool) &&
+                    inputPath.isNotBlank() && onOpenFile != null
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (canOpenFile) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .then(
+                            if (canOpenFile) Modifier.clickableNoRipple { onOpenFile!!(inputPath) }
+                            else Modifier,
+                        ),
                 )
             }
 
@@ -1970,7 +2020,12 @@ private fun ToolBlock(
 }
 
 @Composable
-private fun ToolDetailCard(part: Part.Tool, baseDir: String = "", onClose: () -> Unit) {
+private fun ToolDetailCard(
+    part: Part.Tool,
+    baseDir: String = "",
+    onClose: () -> Unit,
+    onOpenFile: ((String) -> Unit)? = null,
+) {
     val (contentMin, contentMax) = rememberDialogContentHeight()
     val isShellTool = part.name.lowercase() in setOf("shell", "bash", "sh")
     val isWriteTool = part.name == "write"
@@ -2029,15 +2084,25 @@ private fun ToolDetailCard(part: Part.Tool, baseDir: String = "", onClose: () ->
                         )
                     }
                     if (subtitle.isNotBlank()) {
+                        val canOpenFile = (isReadTool || isEditTool || isWriteTool) &&
+                            inputPath.isNotBlank() && onOpenFile != null
                         Text(
                             subtitle,
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (canOpenFile) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp),
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .then(
+                                    if (canOpenFile) Modifier.clickableNoRipple {
+                                        onClose()
+                                        onOpenFile!!(inputPath)
+                                    } else Modifier,
+                                ),
                         )
                     }
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -2164,11 +2229,31 @@ private fun FilePreviewCard(model: AppModel, path: String, onClose: () -> Unit) 
                     .heightIn(min = contentMin, max = contentMax)
                     .padding(vertical = 4.dp),
             ) {
+                val mediaUri = model.openFileMediaUri
+                val mediaKind = model.openFileMediaKind
                 when {
                     model.openFileLoading -> CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center).size(20.dp),
                         strokeWidth = 2.dp,
                     )
+                    mediaUri != null && mediaKind != null -> Column(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        MediaPreview(
+                            uri = mediaUri,
+                            kind = mediaKind,
+                            title = path.substringAfterLast('/'),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (model.openFileBytesSize > 0L) {
+                            Text(
+                                "${model.openFileMime.ifBlank { mediaKind }} · ${model.openFileBytesSize / 1024} KB",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     model.openFileImage != null -> Image(
                         bitmap = model.openFileImage!!.asImageBitmap(),
                         contentDescription = path.substringAfterLast('/'),
@@ -2185,17 +2270,34 @@ private fun FilePreviewCard(model: AppModel, path: String, onClose: () -> Unit) 
                     model.openFileMarkdown -> Box(
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                     ) {
-                        MarkdownText(model.openFileText, compact = false)
+                        val baseDir = path.substringBeforeLast('/', "")
+                        MarkdownText(
+                            model.openFileText,
+                            compact = false,
+                            onOpenPath = { ref ->
+                                model.openFile(resolveFileRef(ref, baseDir, model.homeDir))
+                            },
+                        )
                     }
                     else -> Box(
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                     ) {
-                        Text(
-                            model.openFileText.take(120_000),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        val baseDir = path.substringBeforeLast('/', "")
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (model.openFileMime.isNotBlank()) {
+                                Text(
+                                    model.openFileMime,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                model.openFileText.take(120_000),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                 }
             }

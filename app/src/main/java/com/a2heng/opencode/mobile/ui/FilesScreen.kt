@@ -279,11 +279,34 @@ private fun FileViewer(model: AppModel, path: String) {
                 .fillMaxSize()
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
+            val mediaUri = model.openFileMediaUri
+            val mediaKind = model.openFileMediaKind
             when {
                 model.openFileLoading -> CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center).size(22.dp),
                     strokeWidth = 2.dp,
                 )
+                mediaUri != null && mediaKind != null -> Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    MediaPreview(
+                        uri = mediaUri,
+                        kind = mediaKind,
+                        title = path.substringAfterLast('/'),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (model.openFileMime.isNotBlank() || model.openFileBytesSize > 0L) {
+                        Text(
+                            listOfNotNull(
+                                model.openFileMime.takeIf { it.isNotBlank() },
+                                if (model.openFileBytesSize > 0L) "${model.openFileBytesSize / 1024} KB" else null,
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 model.openFileImage != null -> Image(
                     bitmap = model.openFileImage!!.asImageBitmap(),
                     contentDescription = path.substringAfterLast('/'),
@@ -300,19 +323,36 @@ private fun FileViewer(model: AppModel, path: String) {
                 model.openFileMarkdown -> Box(
                     Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                 ) {
-                    MarkdownText(model.openFileText, Modifier.fillMaxWidth(), compact = false)
+                    val baseDir = path.substringBeforeLast('/', "")
+                    MarkdownText(
+                        model.openFileText,
+                        Modifier.fillMaxWidth(),
+                        compact = false,
+                        onOpenPath = { ref ->
+                            model.openFile(resolveFileRef(ref, baseDir, model.homeDir))
+                        },
+                    )
                 }
                 else -> Box(
                     Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                 ) {
-                    Text(
-                        model.openFileText.take(120_000),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (model.openFileMime.isNotBlank()) {
+                            Text(
+                                model.openFileMime,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            model.openFileText.take(120_000),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
         }
     }
+}
 }

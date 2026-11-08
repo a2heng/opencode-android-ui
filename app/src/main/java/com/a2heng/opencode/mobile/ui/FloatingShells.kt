@@ -20,12 +20,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +62,7 @@ fun FloatingShells(model: AppModel, sessionID: String, modifier: Modifier = Modi
     var offset by remember { mutableStateOf(Offset.Zero) }
     var selected by remember { mutableStateOf<String?>(null) }
     var output by remember { mutableStateOf("") }
+    var confirmStopId by remember { mutableStateOf<String?>(null) }
     // 每秒刷新一次已运行时长
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -75,6 +78,37 @@ fun FloatingShells(model: AppModel, sessionID: String, modifier: Modifier = Modi
             output = model.loadShellOutput(id)
             kotlinx.coroutines.delay(1500)
         }
+    }
+
+    confirmStopId?.let { stopId ->
+        val cmd = shells.firstOrNull { it.id == stopId }?.command.orEmpty().trim()
+        val short = when {
+            cmd.isBlank() -> ""
+            cmd.length <= 28 -> cmd
+            else -> cmd.take(28).trimEnd() + "…"
+        }
+        AlertDialog(
+            onDismissRequest = { confirmStopId = null },
+            text = {
+                Text(
+                    if (short.isNotBlank()) "关闭「$short」这个 shell？"
+                    else "关闭这个 shell？",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (selected == stopId) {
+                        selected = null
+                        output = ""
+                    }
+                    model.stopShell(stopId)
+                    confirmStopId = null
+                }) { Text("关闭", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmStopId = null }) { Text("取消") }
+            },
+        )
     }
 
     Box(modifier.offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }) {
@@ -217,13 +251,7 @@ fun FloatingShells(model: AppModel, sessionID: String, modifier: Modifier = Modi
                                 color = MaterialTheme.colorScheme.primary,
                             )
                             IconButton(
-                                onClick = {
-                                    if (selected == shell.id) {
-                                        selected = null
-                                        output = ""
-                                    }
-                                    model.stopShell(shell.id)
-                                },
+                                onClick = { confirmStopId = shell.id },
                                 modifier = Modifier.size(28.dp),
                             ) {
                                 Icon(

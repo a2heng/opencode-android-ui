@@ -64,14 +64,13 @@ fun FilesScreen(model: AppModel, wide: Boolean = false) {
         if (model.fsDir.isBlank()) model.loadDir(null)
     }
 
-    BackHandler(enabled = model.openFile != null || model.fsDir.trimEnd('/') != model.fsRoot.trimEnd('/')) {
+    BackHandler(enabled = model.openFile != null || model.fsDir.trimEnd('/') != "/") {
         if (model.openFile != null) {
             model.closeFile()
         } else {
-            val root = model.fsRoot.trimEnd('/')
             val current = model.fsDir.trimEnd('/')
             val parent = current.substringBeforeLast('/')
-            model.loadDir(if (parent.length < root.length) root else parent)
+            model.loadDir(parent.ifBlank { "/" })
         }
     }
 
@@ -120,6 +119,7 @@ private fun FsListPane(model: AppModel) {
         val presets = remember(model.homeDir, model.current?.id, model.sessions, model.fsDir) {
             buildList {
                 if (model.homeDir.isNotBlank()) add("~" to model.homeDir)
+                add("/" to "/")
                 add("/tmp/opencode" to "/tmp/opencode")
                 model.current?.directory?.takeIf { it.isNotBlank() }?.let { add("当前会话" to it) }
                 model.sessions.forEach { s ->
@@ -177,14 +177,11 @@ private fun FsListPane(model: AppModel) {
         ) {
             IconButton(
                 onClick = {
-                    val root = model.fsRoot.trimEnd('/')
                     val current = model.fsDir.trimEnd('/')
-                    if (current.isNotEmpty() && current != root) {
-                        val parent = current.substringBeforeLast('/')
-                        model.loadDir(if (parent.length < root.length) root else parent)
-                    }
+                    val parent = current.substringBeforeLast('/')
+                    model.loadDir(parent.ifBlank { "/" })
                 },
-                enabled = model.fsDir.trimEnd('/') != model.fsRoot.trimEnd('/'),
+                enabled = model.fsDir.trimEnd('/') != "/",
             ) {
                 Icon(Icons.Rounded.ArrowUpward, contentDescription = "上级目录")
             }

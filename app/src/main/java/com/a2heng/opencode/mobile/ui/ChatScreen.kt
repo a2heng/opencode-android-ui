@@ -91,10 +91,13 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.UTurnLeft
 import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -175,7 +178,6 @@ import kotlin.math.roundToInt
 @Composable
 fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     var input by rememberSaveable { mutableStateOf("") }
-    var menu by remember { mutableStateOf(false) }
     var pickModel by remember { mutableStateOf(false) }
     var pickAgent by remember { mutableStateOf(false) }
     var revertTarget by remember { mutableStateOf<Msg?>(null) }
@@ -193,6 +195,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     var showCommands by remember { mutableStateOf(false) }
     var showFilePicker by remember { mutableStateOf(false) }
     var openMenu by remember { mutableStateOf(false) }
+    var chatMenu by remember { mutableStateOf(false) }
     var confirmStop by remember { mutableStateOf(false) }
     var backProgress by remember { mutableFloatStateOf(0f) }
     var entered by remember { mutableStateOf(false) }
@@ -341,91 +344,124 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                         )
                     }
                     Spacer(Modifier.width(8.dp))
-                    // 左侧：标题一行 + 模型胶囊
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            session.shortTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            shape = RoundedCornerShape(50),
-                            border = BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                    // 顶栏只留名字；模型、模式、命中、上下文等全部移到输入区下面的底栏。
+                    Text(
+                        session.shortTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Box {
+                        FilledTonalIconButton(
+                            onClick = { chatMenu = true },
+                            modifier = Modifier.size(38.dp),
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             ),
-                            modifier = Modifier
-                                .padding(top = 1.dp)
-                                .clickableNoRipple {
+                        ) {
+                            Icon(
+                                Icons.Rounded.MoreVert,
+                                contentDescription = "更多",
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = chatMenu,
+                            onDismissRequest = { chatMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("选择模型", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Rounded.Tune, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    Text(
+                                        effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
+                                            ?.takeIf { it.isNotBlank() } ?: "服务端默认",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                    )
+                                },
+                                onClick = {
+                                    chatMenu = false
                                     model.loadMeta(session.directory)
                                     pickModel = true
                                 },
-                        ) {
-                            Text(
-                                effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
-                                    ?.takeIf { it.isNotBlank() } ?: "选择模型",
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("切换 Agent", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Rounded.Build, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    Text(
+                                        agentDisplay,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                onClick = {
+                                    chatMenu = false
+                                    model.loadMeta(session.directory)
+                                    pickAgent = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("显示细节", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Rounded.Visibility, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    Text(
+                                        detailLevelLabel(model.detailLevel),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                onClick = {
+                                    chatMenu = false
+                                    model.updateDetailLevel(nextDetailLevel(model.detailLevel))
+                                },
+                            )
+                            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                            DropdownMenuItem(
+                                text = { Text("缓存详情", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Rounded.Insights, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    Text(
+                                        aggregateTokens?.let { rateLabel(it.hitRate) } ?: "—",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                onClick = {
+                                    chatMenu = false
+                                    model.openCache(session)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Git 视图", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Rounded.AccountTree, null, modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    chatMenu = false
+                                    model.openGit(session.directory)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("打开的会话", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Rounded.UnfoldMore, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    Text(
+                                        "${model.openSessions.size}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                onClick = {
+                                    chatMenu = false
+                                    openMenu = true
+                                },
                             )
                         }
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    // 右侧三个方块：模式 / 命中 / 上下文
-                    InfoSquare("模式", agentDisplay) {
-                        model.loadMeta(session.directory)
-                        pickAgent = true
-                    }
-                    Spacer(Modifier.width(3.dp))
-                    InfoSquare(
-                        "命中",
-                        aggregateTokens?.let { rateLabel(it.hitRate) } ?: "—",
-                        valueColor = aggregateTokens?.let {
-                            rateColor(it.hitRate, MaterialTheme.colorScheme.background.luminanceIsDark())
-                        } ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                    ) { model.openCache(session) }
-                    Spacer(Modifier.width(3.dp))
-                    InfoSquare(
-                        "上下文",
-                        contextPct?.let { "${it.roundToInt()}%" } ?: "—",
-                        valueColor = contextColor,
-                    ) { model.openGit(session.directory) }
-                    Spacer(Modifier.width(3.dp))
-                    FilledTonalIconButton(
-                        onClick = { model.openGit(session.directory) },
-                        modifier = Modifier.size(38.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        ),
-                    ) {
-                        Icon(
-                            Icons.Rounded.AccountTree,
-                            contentDescription = "Git",
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(3.dp))
-                    FilledTonalIconButton(
-                        onClick = { openMenu = true },
-                        modifier = Modifier.size(38.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                    ) {
-                        Icon(
-                            Icons.Rounded.UnfoldMore,
-                            contentDescription = "打开的会话",
-                            modifier = Modifier.size(19.dp),
-                        )
                     }
                 }
             }
@@ -472,7 +508,37 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                         scope.launch { listState.animateScrollToItem(0) }
                     }
                 },
-            )
+            ) {
+                ChatStatusBar(
+                    model = model,
+                    modelLabel = effectiveModel?.let { modelDisplay(it, model.modelGroupById) }
+                        ?.takeIf { it.isNotBlank() } ?: "服务端默认",
+                    agentLabel = agentDisplay,
+                    hitLabel = aggregateTokens?.let { rateLabel(it.hitRate) } ?: "—",
+                    hitColor = aggregateTokens?.let {
+                        rateColor(it.hitRate, MaterialTheme.colorScheme.background.luminanceIsDark())
+                    } ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    contextLabel = contextPct?.let { "${it.roundToInt()}%" } ?: "—",
+                    contextColor = contextColor,
+                    tokensLabel = aggregateTokens?.let {
+                        "↑${formatTokens(it.input)} ↓${formatTokens(it.output)}"
+                    },
+                    costLabel = session.cost.takeIf { it > 0 }?.let { formatCost(it) },
+                    openCount = model.openSessions.size,
+                    onPickModel = {
+                        model.loadMeta(session.directory)
+                        pickModel = true
+                    },
+                    onPickAgent = {
+                        model.loadMeta(session.directory)
+                        pickAgent = true
+                    },
+                    onCache = { model.openCache(session) },
+                    onGit = { model.openGit(session.directory) },
+                    onOpenSessions = { openMenu = true },
+                    onCycleDetail = { model.updateDetailLevel(nextDetailLevel(model.detailLevel)) },
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
@@ -955,6 +1021,7 @@ private fun ChatComposer(
     onRemoveAttachment: (Int) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    footer: @Composable () -> Unit = {},
 ) {
     var actionsOpen by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
@@ -1198,6 +1265,7 @@ private fun ChatComposer(
                     )
                 }
             }
+            footer()
         }
     }
 
@@ -1271,45 +1339,95 @@ private fun InfoChip(
     }
 }
 
+/**
+ * 输入区下方的一排状态底栏：模型 / 模式 / 命中 / 上下文 / 显示 / 会话 / Git / tokens / 花费。
+ * 横向滚动，点哪一项就进对应页面或选择器。
+ */
 @Composable
-private fun InfoSquare(
+private fun ChatStatusBar(
+    model: AppModel,
+    modelLabel: String,
+    agentLabel: String,
+    hitLabel: String,
+    hitColor: Color,
+    contextLabel: String,
+    contextColor: Color,
+    tokensLabel: String?,
+    costLabel: String?,
+    openCount: Int,
+    onPickModel: () -> Unit,
+    onPickAgent: () -> Unit,
+    onCache: () -> Unit,
+    onGit: () -> Unit,
+    onOpenSessions: () -> Unit,
+    onCycleDetail: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(start = 6.dp, end = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusChip("模型", modelLabel, onClick = onPickModel)
+        StatusChip("模式", agentLabel, onClick = onPickAgent)
+        StatusChip("命中", hitLabel, valueColor = hitColor, onClick = onCache)
+        StatusChip("ctx", contextLabel, valueColor = contextColor)
+        StatusChip("显示", detailLevelLabel(model.detailLevel), onClick = onCycleDetail)
+        StatusChip("会话", openCount.toString(), onClick = onOpenSessions)
+        StatusChip("Git", "工作区", onClick = onGit)
+        tokensLabel?.let { StatusChip("tokens", it) }
+        costLabel?.let { StatusChip("花费", it) }
+    }
+}
+
+@Composable
+private fun StatusChip(
     label: String,
     value: String,
-    valueColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,
-    onClick: () -> Unit,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: (() -> Unit)? = null,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-        modifier = Modifier
-            .size(width = 36.dp, height = 40.dp)
-            .clickableNoRipple(onClick),
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        Modifier
+            .height(26.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape)
+            .then(if (onClick != null) Modifier.clickableNoRipple(onClick) else Modifier)
+            .padding(horizontal = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Column(
-            Modifier.fillMaxSize().padding(top = 1.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                label,
-                fontSize = 8.sp,
-                lineHeight = 9.sp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.62f),
-                maxLines = 1,
-            )
-            Text(
-                value,
-                fontSize = 10.sp,
-                lineHeight = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = valueColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            label,
+            fontSize = 9.sp,
+            lineHeight = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Text(
+            value,
+            fontSize = 10.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
+}
+
+private fun detailLevelLabel(level: String): String = when (level) {
+    "compact" -> "精简"
+    "full" -> "适中"
+    else -> "完整"
+}
+
+private fun nextDetailLevel(level: String): String = when (level) {
+    "compact" -> "full"
+    "full" -> "expanded"
+    else -> "compact"
 }
 
 @Composable

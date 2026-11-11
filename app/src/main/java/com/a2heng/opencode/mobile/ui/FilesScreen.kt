@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderSpecial
@@ -35,11 +36,16 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -106,6 +112,9 @@ fun FilesScreen(model: AppModel, wide: Boolean = false) {
 
 @Composable
 private fun FsListPane(model: AppModel) {
+    var creatingFolder by remember { mutableStateOf(false) }
+    var folderName by remember { mutableStateOf("") }
+
     Column(Modifier.fillMaxSize()) {
         // 预设文件夹胶囊：~、/tmp/opencode、当前会话目录、最近项目（自动换行，最多约 5 行后滚动）
         val presets = remember(model.homeDir, model.current?.id, model.sessions, model.fsDir) {
@@ -190,6 +199,13 @@ private fun FsListPane(model: AppModel) {
             if (model.fsLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             }
+            IconButton(onClick = { folderName = ""; creatingFolder = true }) {
+                Icon(
+                    Icons.Rounded.CreateNewFolder,
+                    contentDescription = "新建文件夹",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
 
         model.fsError?.let {
@@ -214,6 +230,53 @@ private fun FsListPane(model: AppModel) {
                 item { Spacer(Modifier.height(20.dp)) }
             }
         }
+    }
+
+    if (creatingFolder) {
+        AppDialog(
+            onDismissRequest = { creatingFolder = false },
+            title = { Text("新建文件夹") },
+            text = {
+                Column {
+                    Text(
+                        model.fsDir.replace(model.fsRoot, "").ifBlank { "/" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = folderName,
+                        onValueChange = { folderName = it },
+                        placeholder = { Text("文件夹名，例如 PureVox") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = folderName.isNotBlank(),
+                    onClick = {
+                        val name = folderName.trim().trim('/')
+                        creatingFolder = false
+                        folderName = ""
+                        if (name.isNotEmpty()) {
+                            model.createFolder(model.fsDir, name) {
+                                model.loadDir(model.fsDir)
+                            }
+                        }
+                    },
+                ) { Text("创建") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    creatingFolder = false
+                    folderName = ""
+                }) { Text("取消") }
+            },
+        )
     }
 }
 

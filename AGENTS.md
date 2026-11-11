@@ -35,12 +35,15 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 
 ### 4.1 信息层级与标题
 
-- 对话页顶栏（自定义，不用 M3 `TopAppBar`）：
-  - 左侧：40dp 圆形返回按钮 + 标题（`titleSmall`，单行省略）+ 模型（`labelSmall`，单行省略，点击换模型）。
-  - 右侧：三个 **38dp 方形块**（两行：小标签 + 值），从左到右 **模式（Agent）/ 命中 / 上下文**；再右边是 40dp 圆形「打开会话」按钮。
-  - 顶栏内容高度 46dp（压缩过；原来 52dp），背景与底部输入区一致（`surface` + `tonalElevation = 3.dp`），不要用 background 色融进内容。
-  - 方块里的 `Text` 必须显式写 `lineHeight`（约 9sp / 11sp），否则默认行高会把第二行裁掉。
-  - 圆形按钮尺寸保持不变（40dp），和输入区左右按钮一致。
+- 对话页顶栏（自定义，不用 M3 `TopAppBar`）**只放两样东西**：
+  - 左侧：40dp 圆形返回按钮 + 标题（`titleSmall`，单行省略）。
+  - 右侧：38dp 方形「⋮」按钮，点开下拉菜单（选择模型 / 切换 Agent / 显示细节 / 缓存详情 / Git 视图 / 打开的会话）。
+  - 顶栏内容高度 46dp，背景与底部输入区一致（`surface` + `tonalElevation = 3.dp`），不要用 background 色融进内容。
+  - **不要再把模型、模式、命中、上下文、Git、打开会话塞进顶栏**（用户明确要求“都移到底下”）。
+- 输入区下面是一条横向滚动的**状态底栏**（`ChatStatusBar` / `StatusChip`，26dp 高、10sp）：
+  - 顺序：模型 / 模式 / 命中 / ctx / 显示（精简·适中·完整，点击循环） / 会话数 / Git / tokens（↑↓） / 花费。
+  - 能点的项直接进选择器或对应页面；ctx、tokens、花费只展示不可点。
+  - 底栏在 `ChatComposer` 的 `footer` 槽里，跟随输入区一起避让导航栏和 IME。
 - 标题里**不要再显示运行状态文字**（「正在思考」「正在使用工具」「已加入队列」「已插入当前回答」等）。运行状态只放在消息区的 LiveBubble 里。
 - **命中率用整个会话的累计口径**（`session.tokens` 或所有消息 token 求和），不是最近一步；**上下文 ctx 仍然是最新一步的窗口占用**（input + cache.read + cache.write）。
 
@@ -126,6 +129,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   - **思考强度只在被选中的模型下面常驻展示**（一排 Default / 各档位按钮），不要每个模型都做展开，也不要单独放顶部。
   - 选中有档位的模型后保持面板打开，方便继续选强度；没有档位的模型选中后直接关闭。
   - 没有选档位就是 **Default**；服务端的 `variant: "default"` 归一成 null。
+- 设置里的「默认模型」**必须真正落到服务端会话**：新建会话后调 `POST /api/session/{id}/model`，再读回 `/api/session/{id}` 以服务端返回为准；写失败要在 `lastError` 里提示。只改本地 `copy(model=...)` 会在重连或换客户端后退回服务端默认。
 - 登录/断开后的连接页必须使用当前主题（跟随系统 / 浅色 / 深色），根布局要显式铺 `MaterialTheme.colorScheme.background`，
   否则 edge-to-edge 会露出黑色窗口背景。
 - 外观设置 / 主题色：横向色卡（圆形色块 + 短标签），不要用竖排 OptionRow；外观三张卡（跟随系统=黑白渐变、浅色=白、深色=黑），
@@ -245,6 +249,8 @@ app/src/main/java/com/a2heng/opencode/mobile/
 ### 4.12 文件
 
 - 预设目录用**胶囊**（无图标、自动换行、最多约 5 行后滚动）：`~`、`/tmp/opencode`、当前会话目录、最近项目。
+- 目录行右侧固定两个图标按钮：**上一级**（`ArrowUpward`，到根目录时禁用）和**新建文件夹**（`CreateNewFolder`，弹名字对话框，走服务端 shell `mkdir -p`，建完自动刷新）。
+- 新建会话对话框也保留同样的「上一级 + 新建文件夹」，两处行为要一致。
 - `/api/fs/list`、`/api/fs/read` 都是 **location 作用域**：列目录用 `location[directory]=<绝对目录>`，读文件用 `location[directory]=<父目录>` + 文件名（不要用 `..`，会被 URL 规范化掉）。
 - 文本解码：严格 UTF-8 → GB18030 回退；前 8KB 有 NUL 当二进制；图片走 BitmapFactory；`.md` 用 MarkdownText。
 - 对话正文里的绝对路径可点开文件预览卡（`DetailOverlay` + `FilePreviewCard`）。

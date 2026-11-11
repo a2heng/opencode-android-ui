@@ -507,8 +507,44 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         serverVersion = ""
     }
 
+    /**
+     * 启动时自动连接，优先级：
+     * 1. 本机 Adia（android-dev-in-android）正在跑 → 直接连它的 127.0.0.1 服务，
+     *    URL 和随机密码通过它的 ContentProvider 拿（不用用户手输）。
+     * 2. 之前保存的服务器（通常是电脑的局域网 opencode）。
+     * 3. 没配置时探测本机 4096/4098（服务端没开密码的调试场景）。
+     */
     fun autoConnect() {
-        if (serverUrl.isNotBlank() && !connected) connect(serverUrl, password)
+        if (connected || connecting) return
+        viewModelScope.launch {
+            val local = withContext(Dispatchers.IO) {
+                runCatching { LocalServerProbe.findRunning(getApplication()) }.getOrNull()
+            }
+            if (local != null) {
+                val healthy = withContext(Dispatchers.IO) {
+                    runCatching { OcClient(local.url, local.password).ping() }.isSuccess
+                }
+                if (healthy) {
+                    // 不写进 SharedPreferences：Adia 停掉后还能回退到电脑的服务器。
+                    connect(local.url, local.password, remember = false)
+                    return@launch
+                }
+            }
+            if (serverUrl.isNotBlank()) {
+                connect(serverUrl, password)
+                return@launch
+            }
+            for (port in listOf(4096, 4098)) {
+                val url = "http://127.0.0.1:$port"
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching { OcClient(url, "").ping() }.isSuccess
+                }
+                if (ok) {
+                    connect(url, "")
+                    return@launch
+                }
+            }
+        }
     }
 
     fun clearError() {
@@ -1046,19 +1082,34 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 val dir = directory?.takeIf { it.isNotBlank() }
                     ?: current?.directory?.takeIf { it.isNotBlank() }
                     ?: sessions.firstOrNull()?.directory
-                val s = withContext(Dispatchers.IO) { c.createSession(dir) }
-                if (s != null) {
-                    defaultModel?.let { chosen ->
-                        runCatching { withContext(Dispatchers.IO) { c.setModel(s.id, chosen) } }
+                var s = withContext(Dispatchers.IO) { c.createSession(dir) }
+                // 默认模型必须落到服务端会话上：只改本地 copy 的话，
+                // 别的客户端或重连后会退回服务端默认模型。
+                val chosen = defaultModel
+                if (s != null && chosen != null && !sameModel(s.model, chosen)) {
+                    val applied = runCatching {
+                        withContext(Dispatchers.IO) { c.setModel(s.id, chosen) }
+                    }.isSuccess
+                    if (!applied) {
+                        lastError = "默认模型 ${chosen.label} 没能应用到新会话"
                     }
+                    // 以服务端返回为准（含 variant 归一化），读不到才本地补。
+                    val fresh: SessionInfo? = withContext(Dispatchers.IO) {
+                        runCatching { c.session(s.id) }.getOrNull()
+                    }
+                    s = fresh ?: s.copy(model = chosen)
                 }
                 refreshSessions()
-                if (s != null) openSession(s.copy(model = defaultModel ?: s.model))
+                if (s != null) openSession(s)
             } catch (e: Exception) {
                 lastError = e.message
             }
         }
     }
+
+    private fun sameModel(a: ModelRef?, b: ModelRef?): Boolean =
+        a != null && b != null && a.id == b.id && a.providerID == b.providerID &&
+            a.variant == b.variant
 
     /** 新建会话对话框里浏览目录用，不影响「文件」页签的状态。 */
     suspend fun browseDirs(path: String?): Pair<String, List<FsEntry>> {

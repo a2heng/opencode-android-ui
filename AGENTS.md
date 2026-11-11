@@ -226,8 +226,8 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 ## 7. 代码地图
 
 ```
-app/src/main/java/com/a2heng/opencode/mobile/
-├── MainActivity.kt            # 启动画面、分享入口、通知权限、ON_RESUME 刷新
+client/src/main/java/com/a2heng/opencode/mobile/   # 可复用库（Adia 也依赖）
+├── OpenCodeRoot.kt            # OpenCodeMobileRoot / OpenCodeMobileHost
 ├── ConnectionService.kt       # 前台保活通知
 ├── data/
 │   ├── OcClient.kt            # HTTP/SSE/PTY/命令/分页消息/文件/shell
@@ -243,8 +243,17 @@ app/src/main/java/com/a2heng/opencode/mobile/
     ├── TerminalScreen.kt      # PTY 列表 / 终端
     ├── SettingsScreen.kt      # 默认模型/外观/主题/发送模式/显示/更新
     ├── FloatingShells.kt      # 后台 shell 悬浮球
-    └── Markdown.kt / ToolViews.kt / ModelCatalog.kt / AppDialog.kt / Components.kt
+    └── Markdown.kt / ToolViews.kt / ModelCatalog.kt / AppDialog.kt / Components.kt / PickerPage.kt
+app/src/main/java/com/a2heng/opencode/mobile/
+└── MainActivity.kt            # 独立 APK 薄壳：启动画面、分享入口、通知权限
 ```
+
+- `:client` 是 **library**（namespace `com.a2heng.opencode.mobile`），`:app` 的
+  namespace 是 `com.a2heng.opencode.mobile.app`，两者不能相同。
+- 库里的代码不要引用宿主的 Activity/类；需要宿主入口就用
+  `OpenCodeMobileHost.show(activity, url, password)`。
+- ConnectionService 的通知点击用 `packageManager.getLaunchIntentForPackage`，
+  不能直接引用 MainActivity。
 
 ## 8. 已知约束
 

@@ -1,27 +1,22 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 // ---------------------------------------------------------------------------
 // 版本：只用语义化版本，不要日期序号。
-//   本地默认 0.1.3 / 103；CI 从 tag（v0.1.3）推导后通过 -PomVersionName/-PomVersionCode 传入。
-//   versionCode = major*10000 + minor*100 + patch（0.1.3 → 103），保证单调递增。
+//   本地默认 0.4.0 / 400；CI 从 tag（v0.3.11）推导后通过 -PomVersionName/-PomVersionCode 传入。
+//   versionCode = major*10000 + minor*100 + patch（0.4.0 → 400）。
 // ---------------------------------------------------------------------------
 fun envValue(name: String): String? = System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
 
 val omVersionName: String =
-    (findProperty("omVersionName") as String?) ?: envValue("OM_VERSION_NAME") ?: "0.3.11"
+    (findProperty("omVersionName") as String?) ?: envValue("OM_VERSION_NAME") ?: "0.4.0"
 val omVersionCode: Int =
-    ((findProperty("omVersionCode") as String?) ?: envValue("OM_VERSION_CODE") ?: "311").toInt()
+    ((findProperty("omVersionCode") as String?) ?: envValue("OM_VERSION_CODE") ?: "400").toInt()
 
 // ---------------------------------------------------------------------------
 // release 签名：凭据一律走环境变量，keystore 放在仓库外。
-//   OM_KEYSTORE    keystore 绝对路径（CI 里 base64 还原到 $RUNNER_TEMP）
-//   OM_KEY_ALIAS   密钥别名
-//   OM_KEY_PASS    store/key 共用口令
-//   OM_REQUIRE_SIGNING=1 时缺凭据直接失败（CI 发版必须签名）
 // ---------------------------------------------------------------------------
 val omStoreFile = envValue("OM_KEYSTORE")
 val omKeyAlias = envValue("OM_KEY_ALIAS")
@@ -38,8 +33,10 @@ if (omRequireSigning && !omHasSigning) {
     throw GradleException("缺签名凭据：${missing.joinToString()}（CI 发版不允许未签名 release）")
 }
 
+// 独立 APK 的薄壳：只留 MainActivity、启动画面和分享入口。
+// 全部界面与数据层在 :client（Adia 也依赖它）。
 android {
-    namespace = "com.a2heng.opencode.mobile"
+    namespace = "com.a2heng.opencode.mobile.app"
     compileSdk = 37
 
     defaultConfig {
@@ -57,7 +54,6 @@ android {
                 keyAlias = omKeyAlias
                 storePassword = omKeyPass
                 keyPassword = omKeyPass
-                // minSdk 26 → 不需要 v1；v2/v3 显式打开
                 enableV1Signing = false
                 enableV2Signing = true
                 enableV3Signing = true
@@ -74,7 +70,6 @@ android {
             }
         }
         debug {
-            // 与正式包共存：不同 applicationId + 不同签名
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             resValue("string", "app_name", "OpenCode Dev")
@@ -104,26 +99,16 @@ android {
 }
 
 dependencies {
+    implementation(project(":client"))
+
     val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
-    androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.activity:activity-compose:1.12.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
-
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-
-    implementation("org.connectbot:termlib:0.3.14")
-
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

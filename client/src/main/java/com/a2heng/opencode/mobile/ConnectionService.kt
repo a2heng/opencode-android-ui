@@ -34,10 +34,17 @@ class ConnectionService : Service() {
     }
 
     private fun buildNotification(): Notification {
+        // 解耦：这里不能直接引用宿主（或独立 APK）的 MainActivity，
+        // 用包管理器拿启动 Intent；找不到就打开应用详情页。
+        val launch = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:$packageName"),
+            )
         val open = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            launch,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val stop = PendingIntent.getService(

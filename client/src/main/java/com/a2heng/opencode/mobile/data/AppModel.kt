@@ -160,7 +160,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    val appVersion: String = com.a2heng.opencode.mobile.BuildConfig.VERSION_NAME
+    /** 版本号来自包管理器（library 模块没有 BuildConfig.VERSION_NAME）。 */
+    val appVersion: String = runCatching {
+        app.packageManager.getPackageInfo(app.packageName, 0).versionName.orEmpty()
+    }.getOrDefault("")
     var checkingUpdate by mutableStateOf(false)
         private set
     var updateMessage by mutableStateOf<String?>(null)

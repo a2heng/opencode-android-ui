@@ -76,18 +76,28 @@ OM_REQUIRE_SIGNING=1 \
 ## 目录
 
 ```
-app/src/main/java/com/a2heng/opencode/mobile/
-├── MainActivity.kt          # 启动画面 / 分享入口
-├── data/
-│   ├── OcClient.kt          # HTTP / SSE / PTY WebSocket
-│   ├── Models.kt            # 宽松 JSON 解析、缓存统计
-│   └── AppModel.kt          # 全局状态、事件流、队列/权限/终端
-└── ui/
-    ├── AppRoot.kt           # 主框架 / 设置
-    ├── SessionsScreen.kt  ChatScreen.kt  CacheScreen.kt
-    ├── FilesScreen.kt     TerminalScreen.kt  NewSessionDialog.kt
-    ├── Markdown.kt        ToolViews.kt       Components.kt  Theme.kt
+client/                      # 可复用库：数据层 + 全部 Compose 界面
+└── src/main/java/com/a2heng/opencode/mobile/
+    ├── ConnectionService.kt # 连接保活前台服务
+    ├── OpenCodeRoot.kt      # OpenCodeMobileRoot / OpenCodeMobileHost（宿主入口）
+    ├── data/
+    │   ├── OcClient.kt      # HTTP / SSE / PTY WebSocket
+    │   ├── Models.kt        # 宽松 JSON 解析、缓存统计
+    │   └── AppModel.kt      # 全局状态、事件流、队列/权限/终端
+    └── ui/
+        ├── AppRoot.kt       # 主框架 / 设置
+        ├── PickerPage.kt    # 全屏选择页（模型 / Agent / 命令 / 文件）
+        ├── SessionsScreen.kt  ChatScreen.kt  SessionCacheScreen.kt
+        ├── FilesScreen.kt     TerminalScreen.kt  NewSessionDialog.kt
+        └── Markdown.kt        ToolViews.kt       Components.kt  Theme.kt
+
+app/                         # 独立 APK 的薄壳（MainActivity / 启动画面 / 分享入口）
 ```
+
+`client` 是独立可复用的库：独立 APK（`:app`）和
+[Adia](https://github.com/a2heng/android-dev-in-android) 都依赖它。
+Adia 只需启动本机 opencode 服务，然后调用
+`OpenCodeMobileHost.show(activity, url, password)` 就得到同一套界面。
 
 接口细节与踩坑记录见 [docs/API-NOTES.md](docs/API-NOTES.md)。
 

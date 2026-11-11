@@ -36,7 +36,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         shared = readShare(intent)
         setContent {
-            val model: AppModel = viewModel()
             val notifPermission = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission(),
             ) { }
@@ -50,17 +49,7 @@ class MainActivity : ComponentActivity() {
                     notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-            LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { model.refreshOnResume() }
-            OcTheme(themeMode = model.themeMode, appearance = model.appearance) {
-                LaunchedEffect(shared) {
-                    shared?.let {
-                        model.applyShare(it.text, it.image)
-                        shared = null
-                    }
-                }
-                LaunchedEffect(Unit) { model.autoConnect() }
-                AppRoot(model)
-            }
+            OpenCodeMobileRoot(shared = shared, onSharedConsumed = { shared = null })
         }
     }
 

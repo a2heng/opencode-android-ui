@@ -35,17 +35,35 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 
 ### 4.1 信息层级与标题
 
-- 对话页顶栏（自定义，不用 M3 `TopAppBar`）**只放两样东西**：
-  - 左侧：40dp 圆形返回按钮 + 标题（`titleSmall`，单行省略）。
-  - 右侧：38dp 方形「⋮」按钮，点开下拉菜单（选择模型 / 切换 Agent / 显示细节 / 缓存详情 / Git 视图 / 打开的会话）。
-  - 顶栏内容高度 46dp，背景与底部输入区一致（`surface` + `tonalElevation = 3.dp`），不要用 background 色融进内容。
-  - **不要再把模型、模式、命中、上下文、Git、打开会话塞进顶栏**（用户明确要求“都移到底下”）。
-- 输入区下面是一条横向滚动的**状态底栏**（`ChatStatusBar` / `StatusChip`，26dp 高、10sp）：
-  - 顺序：模型 / 模式 / 命中 / ctx / 显示（精简·适中·完整，点击循环） / 会话数 / Git / tokens（↑↓） / 花费。
-  - 能点的项直接进选择器或对应页面；ctx、tokens、花费只展示不可点。
-  - 底栏在 `ChatComposer` 的 `footer` 槽里，跟随输入区一起避让导航栏和 IME。
-- 标题里**不要再显示运行状态文字**（「正在思考」「正在使用工具」「已加入队列」「已插入当前回答」等）。运行状态只放在消息区的 LiveBubble 里。
-- **命中率用整个会话的累计口径**（`session.tokens` 或所有消息 token 求和），不是最近一步；**上下文 ctx 仍然是最新一步的窗口占用**（input + cache.read + cache.write）。
+- 对话页顶栏（自定义，不用 M3 `TopAppBar`）：
+  - 左侧：38dp 圆形返回按钮。
+  - 中间：**标题一行**（`titleSmall`，单行省略）+ 下面一行**小字信息**：
+    `ctx xx% · ↑in ↓out · 显示档位 · Git · 会话 N`。
+    - ctx、tokens 只展示；显示档位点一下循环；Git / 会话可点。
+    - 这行小字用 `MetaText`（9.5sp / 行高 11sp）+ `MetaDot` 分隔，**不要横滑**。
+  - **不要 ⋮ 三个点 / 下拉菜单**（用户明确去掉）。
+  - 高度 50dp，背景与输入区一致（`surface` + `tonalElevation = 3.dp`）。
+- 输入区下面是一条**状态底栏**（`ChatStatusBar` / `StatusChip`，26dp 高、10sp），
+  只放四项、**不横向滚动**：
+  1. 模型（占满剩余宽度，长名字省略）
+  2. 模式（Agent）
+  3. 命中（整会话累计命中率）
+  4. 花费（`formatCost`，没有就是 `—`）
+- 其余信息（上下文、tokens、显示细节、Git、打开的会话）都在顶栏标题下面那行，
+  不要再塞回底栏，也不要再加横滑列表。
+- 标题里**不要显示运行状态文字**（「正在思考」「正在使用工具」等），运行状态只放在
+  消息区的 LiveBubble 里。
+- **命中率用整个会话的累计口径**（`session.tokens`），**上下文 ctx 是最新一步的窗口占用**
+  （input + cache.read + cache.write）。
+
+### 4.1.1 选择器一律用全屏子页
+
+- 模型、Agent、命令、`@文件引用` 全部改成 **`PickerPage`**（`ui/PickerPage.kt`）：
+  从右侧滑入、顶部只有返回按钮 + 标题、内容自己排布。
+- **不要再用 `ModalBottomSheet` / 系统 `Dialog` 做选择器**（用户嫌弹出体验差）；
+  `AppDialog` 只留给确认框（清空输入、中断、回退、重命名、删除）。
+- 进出场统一用 `PickerPageHost`（240ms 滑入 / 190ms 滑出 + 淡入淡出），
+  放在页面根部的 Box 里铺满整屏。
 
 ### 4.2 会话列表
 
@@ -148,7 +166,13 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 悬浮球只显示**当前会话自己的**后台 shell（`Shell.Info.metadata.sessionID == current.id`）。
 - `/api/shell`、`/api/shell/{id}/output`、`DELETE /api/shell/{id}` 都是 **location 作用域**，必须带 `location[directory]=<当前会话目录>`；不带会去查根目录，导致悬浮球看不到当前会话的 shell。
 - 别的会话在跑 shell 时，当前对话不显示悬浮球。
-- 悬浮球展开的卡片：每一行**最左边**是已运行时长（`time.started`，每秒刷新，`12s` / `3m05s` / `1h02m`），点这一行就把输出**展开在这一行下面**（不是整张卡片最下面），输出每 1.5s 刷新；**同一时间只允许展开一条**，点另一条时前一条自动收起。
+- 悬浮球（收起态）：46dp 圆球，可拖动；**球的位置和展开的卡片无关**，球只是“打开卡片”的按钮。
+- 展开态必须和工具/文件/思考详情**完全一致**：
+  - 用 `DetailOverlay`（卡片居中、背景渐暗、点外面/返回键关闭，同一个进度驱动动画）。
+  - **全部 shell 直接全展开**：没有「查看/收起」、没有单条折叠；卡片内部整体滚动，输出每 1.5s 刷新。
+  - 每条 shell 最左边是**亮色竖条**（primary/tertiary/secondary/error 循环）用来区分多条；旁边是已运行时长（`12s` / `3m05s` / `1h02m`）+ 命令（同色等宽字）+ 停止按钮；下面是全宽输出块（等宽 11sp/行高 15sp）。
+  - 卡片宽度 `fillMaxWidth` 限 560dp，高度最多屏幕 72%，关闭按钮在标题行右侧（X），不是「收起」。
+  - 悬浮球要挂在 **Scaffold 外面**（整屏层），否则卡片只能居中在消息区。
 - 原版 Ctrl+B：`POST /api/session/{id}/background` 把正在阻塞的 shell 移到后台。
   - 精简模式：在运行中的 shell 那一行右侧显示「后台」。
   - 适中/完整模式：在工具卡片标题右侧显示「后台」。

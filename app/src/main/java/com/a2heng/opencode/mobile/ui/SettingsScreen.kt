@@ -283,15 +283,17 @@ fun SettingsScreen(model: AppModel) {
         val noneLabel = model.serverDefaultModel?.let {
             "服务器默认（${modelDisplay(it, model.modelGroupById)}）"
         } ?: "服务器默认"
-        ModelPickerSheet(
-            model = model,
-            title = "默认模型",
-            selected = model.defaultModel,
-            allowNone = true,
-            noneLabel = noneLabel,
-            onPick = { ref -> model.updateDefaultModel(ref) },
-            onDismiss = { showModelPicker = false },
-        )
+        PickerPageHost(visible = showModelPicker, onBack = { showModelPicker = false }) {
+            ModelPickerPage(
+                model = model,
+                title = "默认模型",
+                selected = model.defaultModel,
+                allowNone = true,
+                noneLabel = noneLabel,
+                onPick = { ref -> model.updateDefaultModel(ref) },
+                onDismiss = { showModelPicker = false },
+            )
+        }
     }
 }
 

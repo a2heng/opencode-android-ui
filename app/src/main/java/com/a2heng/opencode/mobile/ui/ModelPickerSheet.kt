@@ -44,7 +44,7 @@ import com.a2heng.opencode.mobile.data.ModelRef
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelPickerSheet(
+fun ModelPickerPage(
     model: AppModel,
     title: String,
     selected: ModelRef?,
@@ -60,17 +60,8 @@ fun ModelPickerSheet(
         }?.group
     }
     var expanded by remember(selectedGroup) { mutableStateOf(selectedGroup ?: 0) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.82f)
-                .padding(horizontal = 16.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-
+    PickerPage(title = title, onBack = onDismiss) {
             if (allowNone) {
                 Row(
                     Modifier
@@ -85,7 +76,7 @@ fun ModelPickerSheet(
                 }
             }
 
-            LazyColumn(Modifier.weight(1f)) {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 entries.groupBy { it.group }.forEach { (group, groupEntries) ->
                     item(key = "group-$group") {
                         Row(
@@ -187,8 +178,6 @@ fun ModelPickerSheet(
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-        }
     }
 }
 

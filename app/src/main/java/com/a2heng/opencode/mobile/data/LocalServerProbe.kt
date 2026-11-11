@@ -25,6 +25,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * 并在 `<queries>` 里声明 Adia 的包名（Android 11+ 的包可见性）。
  */
 object LocalServerProbe {
+    private const val TAG = "LocalServerProbe"
     /** 正式包 + debug 包（applicationIdSuffix .debug）。 */
     private val AUTHORITIES = listOf(
         "com.a2heng.adia.local-server",
@@ -39,10 +40,9 @@ object LocalServerProbe {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** 找到正在运行的本机 Adia 服务器；没有就返回 null。 */
+    /** 找到本机 Adia 暴露的服务信息（URL + 密码）。是否真的在跑由调用方 ping 判断。 */
     fun findRunning(app: Context): ServerInfo? =
         AUTHORITIES.firstNotNullOfOrNull { authority -> query(app, authority) }
-            ?.takeIf { it.running }
 
     private fun query(app: Context, authority: String): ServerInfo? = runCatching {
         app.contentResolver
@@ -58,5 +58,7 @@ object LocalServerProbe {
                     running = o["running"]?.jsonPrimitive?.contentOrNull == "true",
                 )
             }
+    }.onFailure {
+        android.util.Log.d(TAG, "query $authority failed: $it")
     }.getOrNull()
 }

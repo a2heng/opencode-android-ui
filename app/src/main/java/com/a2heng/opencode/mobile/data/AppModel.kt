@@ -508,13 +508,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 启动时自动连接，优先级：
-     * 1. 本机 Adia（android-dev-in-android）正在跑 → 直接连它的 127.0.0.1 服务，
+     * 启动/回到前台时自动连接，优先级：
+     * 1. 本机 Adia（android-dev-in-android）在跑 → 直接连它的 127.0.0.1 服务，
      *    URL 和随机密码通过它的 ContentProvider 拿（不用用户手输）。
      * 2. 之前保存的服务器（通常是电脑的局域网 opencode）。
      * 3. 没配置时探测本机 4096/4098（服务端没开密码的调试场景）。
+     *
+     * 注意：`refreshOnResume()` 也会走这里，否则回到前台会先连保存的电脑服务器，
+     * 把本机 Adia 挤掉。
      */
-    fun autoConnect() {
+    fun autoConnect() = connectBestEffort()
+
+    private fun connectBestEffort() {
         if (connected || connecting) return
         viewModelScope.launch {
             val local = withContext(Dispatchers.IO) {
@@ -674,8 +679,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         retryDelay = (retryDelay * 2).coerceAtMost(60_000L)
         retryJob = viewModelScope.launch {
             delay(delayMs)
-            if (!connected && !connecting && serverUrl.isNotBlank()) {
-                connect(serverUrl, password)
+            if (!connected && !connecting) {
+                connectBestEffort()
             }
         }
     }
@@ -684,12 +689,12 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun retryNow() {
         retryJob?.cancel()
         retryDelay = 5_000L
-        if (serverUrl.isNotBlank()) connect(serverUrl, password)
+        connectBestEffort()
     }
 
     /** 回到前台时调用：只在断开时补一次，连上就不动。 */
     fun retryIfNeeded() {
-        if (!connected && !connecting && serverUrl.isNotBlank()) retryNow()
+        if (!connected && !connecting) retryNow()
     }
 
     /**

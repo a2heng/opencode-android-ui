@@ -39,6 +39,8 @@ dependencies {
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.18.0")
+    // theme 里引用了 Theme.SplashScreen，必须暴露给宿主（Adia）一起合并资源
+    api("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.activity:activity-compose:1.12.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")

@@ -507,49 +507,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         serverVersion = ""
     }
 
-    /**
-     * 启动/回到前台时自动连接，优先级：
-     * 1. 本机 Adia（android-dev-in-android）在跑 → 直接连它的 127.0.0.1 服务，
-     *    URL 和随机密码通过它的 ContentProvider 拿（不用用户手输）。
-     * 2. 之前保存的服务器（通常是电脑的局域网 opencode）。
-     * 3. 没配置时探测本机 4096/4098（服务端没开密码的调试场景）。
-     *
-     * 注意：`refreshOnResume()` 也会走这里，否则回到前台会先连保存的电脑服务器，
-     * 把本机 Adia 挤掉。
-     */
-    fun autoConnect() = connectBestEffort()
-
-    private fun connectBestEffort() {
-        if (connected || connecting) return
-        viewModelScope.launch {
-            val local = withContext(Dispatchers.IO) {
-                runCatching { LocalServerProbe.findRunning(getApplication()) }.getOrNull()
-            }
-            if (local != null) {
-                val healthy = withContext(Dispatchers.IO) {
-                    runCatching { OcClient(local.url, local.password).ping() }.isSuccess
-                }
-                if (healthy) {
-                    // 不写进 SharedPreferences：Adia 停掉后还能回退到电脑的服务器。
-                    connect(local.url, local.password, remember = false)
-                    return@launch
-                }
-            }
-            if (serverUrl.isNotBlank()) {
-                connect(serverUrl, password)
-                return@launch
-            }
-            for (port in listOf(4096, 4098)) {
-                val url = "http://127.0.0.1:$port"
-                val ok = withContext(Dispatchers.IO) {
-                    runCatching { OcClient(url, "").ping() }.isSuccess
-                }
-                if (ok) {
-                    connect(url, "")
-                    return@launch
-                }
-            }
-        }
+    fun autoConnect() {
+        if (serverUrl.isNotBlank() && !connected && !connecting) connect(serverUrl, password)
     }
 
     fun clearError() {
@@ -679,8 +638,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         retryDelay = (retryDelay * 2).coerceAtMost(60_000L)
         retryJob = viewModelScope.launch {
             delay(delayMs)
-            if (!connected && !connecting) {
-                connectBestEffort()
+            if (!connected && !connecting && serverUrl.isNotBlank()) {
+                connect(serverUrl, password)
             }
         }
     }
@@ -689,12 +648,12 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun retryNow() {
         retryJob?.cancel()
         retryDelay = 5_000L
-        connectBestEffort()
+        if (serverUrl.isNotBlank()) connect(serverUrl, password)
     }
 
     /** 回到前台时调用：只在断开时补一次，连上就不动。 */
     fun retryIfNeeded() {
-        if (!connected && !connecting) retryNow()
+        if (!connected && !connecting && serverUrl.isNotBlank()) retryNow()
     }
 
     /**

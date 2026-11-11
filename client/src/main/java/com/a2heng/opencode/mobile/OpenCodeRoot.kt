@@ -11,21 +11,37 @@ import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.SharedPayload
 import com.a2heng.opencode.mobile.ui.AppRoot
 import com.a2heng.opencode.mobile.ui.OcTheme
+import java.lang.Process
+
+/** 宿主（Adia）提供的本机 shell 进程（Termux/proot 里的 bash）。 */
+fun interface LocalShellSpawner {
+    fun spawn(): Process?
+}
+
+/** 本机终端能力：由宿主注入；独立 APK 里为 null，终端页只有服务端 PTY。 */
+object LocalShellHost {
+    @Volatile
+    var spawner: LocalShellSpawner? = null
+    val available: Boolean get() = spawner != null
+}
 
 /**
  * 整个 Compose 客户端的根组合。
  *
  * - 独立 APK：`serverUrl = null`，走保存的服务器 / 登录页。
- * - Adia（单 APK）：传入本机 opencode 的 URL 和随机密码，同进程直接连。
+ * - Adia（单 APK）：传入本机 opencode 的 URL、随机密码，以及可选的
+ *   本机 shell 与文件根目录。
  */
 @Composable
 fun OpenCodeMobileRoot(
     serverUrl: String? = null,
     password: String? = null,
     shared: SharedPayload? = null,
+    fsRoot: String? = null,
     onSharedConsumed: () -> Unit = {},
 ) {
     val model: AppModel = viewModel()
+    if (fsRoot != null) model.overrideFsRoot(fsRoot)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { model.refreshOnResume() }
     OcTheme(themeMode = model.themeMode, appearance = model.appearance) {
         LaunchedEffect(shared) {
@@ -55,6 +71,25 @@ object OpenCodeMobileHost {
     fun show(activity: ComponentActivity, url: String, password: String) {
         activity.setContent {
             OpenCodeMobileRoot(serverUrl = url, password = password)
+        }
+    }
+
+    /**
+     * @param shell  本机 Termux shell（null = 终端页只用服务端 PTY）
+     * @param fsRoot 文件页的“/”（通常是 Adia 的 rootfs/前缀目录）
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun show(
+        activity: ComponentActivity,
+        url: String,
+        password: String,
+        shell: LocalShellSpawner?,
+        fsRoot: String?,
+    ) {
+        LocalShellHost.spawner = shell
+        activity.setContent {
+            OpenCodeMobileRoot(serverUrl = url, password = password, fsRoot = fsRoot)
         }
     }
 }

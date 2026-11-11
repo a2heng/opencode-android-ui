@@ -67,6 +67,7 @@ import java.io.File
 import androidx.compose.ui.unit.sp
 import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.PtyInfo
+import com.a2heng.opencode.mobile.LocalShellHost
 import org.connectbot.terminal.Terminal
 
 @Composable
@@ -75,17 +76,21 @@ fun TerminalScreen(model: AppModel) {
         if (model.ptys.isEmpty()) model.loadPtys()
     }
 
+    var localOpen by remember { mutableStateOf(false) }
     val active = model.ptyActive
     if (active != null) {
         BackHandler { model.detachPty() }
         TerminalView(model, active)
+    } else if (localOpen) {
+        BackHandler { localOpen = false }
+        LocalTerminalView(model) { localOpen = false }
     } else {
-        PtyList(model)
+        PtyList(model, onOpenLocal = if (LocalShellHost.available) ({ { localOpen = true } }) else null)
     }
 }
 
 @Composable
-private fun PtyList(model: AppModel) {
+private fun PtyList(model: AppModel, onOpenLocal: (() -> Unit)? = null) {
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
@@ -105,6 +110,43 @@ private fun PtyList(model: AppModel) {
                 Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("新建")
+            }
+        }
+
+        if (onOpenLocal != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .clickableNoRipple(onOpenLocal),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Rounded.Terminal,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("本机 Termux", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "内置 proot + bash，直接在这台手机上跑",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        "打开",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
 

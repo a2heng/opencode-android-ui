@@ -64,13 +64,16 @@ fun FilesScreen(model: AppModel, wide: Boolean = false) {
         if (model.fsDir.isBlank()) model.loadDir(null)
     }
 
-    BackHandler(enabled = model.openFile != null || model.fsDir.trimEnd('/') != "/") {
+    val rootBase = model.fsRootOverride ?: "/"
+    BackHandler(enabled = model.openFile != null || model.fsDir.trimEnd('/') != rootBase) {
         if (model.openFile != null) {
             model.closeFile()
         } else {
             val current = model.fsDir.trimEnd('/')
-            val parent = current.substringBeforeLast('/')
-            model.loadDir(parent.ifBlank { "/" })
+            if (current != rootBase) {
+                val parent = current.substringBeforeLast('/')
+                model.loadDir(if (parent.length < rootBase.length) rootBase else parent)
+            }
         }
     }
 
@@ -111,6 +114,7 @@ fun FilesScreen(model: AppModel, wide: Boolean = false) {
 
 @Composable
 private fun FsListPane(model: AppModel) {
+    val rootBase = model.fsRootOverride ?: "/"
     var creatingFolder by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("") }
 
@@ -119,7 +123,7 @@ private fun FsListPane(model: AppModel) {
         val presets = remember(model.homeDir, model.current?.id, model.sessions, model.fsDir) {
             buildList {
                 if (model.homeDir.isNotBlank()) add("~" to model.homeDir)
-                add("/" to "/")
+                add("/" to (model.fsRootOverride ?: "/"))
                 add("/tmp/opencode" to "/tmp/opencode")
                 model.current?.directory?.takeIf { it.isNotBlank() }?.let { add("当前会话" to it) }
                 model.sessions.forEach { s ->
@@ -178,10 +182,12 @@ private fun FsListPane(model: AppModel) {
             IconButton(
                 onClick = {
                     val current = model.fsDir.trimEnd('/')
-                    val parent = current.substringBeforeLast('/')
-                    model.loadDir(parent.ifBlank { "/" })
+                    if (current != rootBase) {
+                        val parent = current.substringBeforeLast('/')
+                        model.loadDir(if (parent.length < rootBase.length) rootBase else parent)
+                    }
                 },
-                enabled = model.fsDir.trimEnd('/') != "/",
+                enabled = model.fsDir.trimEnd('/') != rootBase,
             ) {
                 Icon(Icons.Rounded.ArrowUpward, contentDescription = "上级目录")
             }

@@ -315,6 +315,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- 文件 ---------------------------------------------------------------
+    /** 宿主指定的“/”（Adia 的 rootfs/前缀根）；null = 用设备根。 */
+    var fsRootOverride by mutableStateOf<String?>(null)
+        private set
     var fsDir by mutableStateOf("")
         private set
     var fsRoot by mutableStateOf("")
@@ -1510,16 +1513,21 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     // 文件
     // =========================================================================
 
+    fun overrideFsRoot(path: String?) {
+        fsRootOverride = path?.trimEnd('/')?.takeIf { it.isNotBlank() }
+    }
+
     fun loadDir(path: String?) {
         val c = client ?: return
         if (fsLoading) return
+        val target = path ?: fsRootOverride
         fsLoading = true
         fsError = null
         viewModelScope.launch {
             try {
-                val (dir, entries) = withContext(Dispatchers.IO) { c.listDir(path) }
+                val (dir, entries) = withContext(Dispatchers.IO) { c.listDir(target) }
                 fsRoot = dir
-                fsDir = if (path.isNullOrBlank()) dir else path.trimEnd('/')
+                fsDir = if (target.isNullOrBlank()) dir else target.trimEnd('/')
                 fsEntries = entries.sortedWith(compareByDescending<FsEntry> { it.isDir }.thenBy { it.name.lowercase() })
             } catch (e: Exception) {
                 fsError = e.message

@@ -87,7 +87,10 @@ fun NewSessionDialog(
             dirs = list.filter { it.isDir && !it.name.startsWith(".") }
                 .sortedBy { it.name.lowercase() }
         } catch (e: Exception) {
-            if (path == requested) error = e.message
+            if (path == requested) {
+                error = e.message
+                dirs = emptyList()
+            }
         } finally {
             if (path == requested) loading = false
         }

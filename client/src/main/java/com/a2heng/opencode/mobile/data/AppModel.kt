@@ -1587,7 +1587,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 fsDir = dir.ifBlank { target.orEmpty() }.trimEnd('/').ifBlank { "/" }
                 fsEntries = entries.sortedWith(compareByDescending<FsEntry> { it.isDir }.thenBy { it.name.lowercase() })
             } catch (e: Exception) {
-                if (seq == fsLoadSeq) fsError = e.message
+                if (seq == fsLoadSeq) {
+                    fsError = e.message
+                    fsEntries = emptyList()
+                }
             } finally {
                 if (seq == fsLoadSeq) fsLoading = false
             }

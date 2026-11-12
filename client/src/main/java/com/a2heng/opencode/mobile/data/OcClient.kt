@@ -262,9 +262,12 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun vcsBase(directory: String): JsonObject? =
         unwrapObject(get("/api/vcs/base" + locationQuery(directory)))
 
-    suspend fun vcsDiff(directory: String, mode: String = "working"): List<VcsDiffFile> {
-        val base = locationQuery(directory)
-        val q = if (base.contains("?")) "$base&mode=${urlEncode(mode)}" else "?mode=${urlEncode(mode)}"
+    suspend fun vcsDiff(directory: String, mode: String = "working", base: String? = null): List<VcsDiffFile> {
+        val params = buildList {
+            add("mode=" + urlEncode(mode))
+            if (!base.isNullOrBlank()) add("base=" + urlEncode(base))
+        }.joinToString("&")
+        val q = locationQuery(directory).let { if (it.isBlank()) "?$params" else "$it&$params" }
         return unwrapArray(get("/api/vcs/diff$q")).mapNotNull { item ->
             (item as? JsonObject)?.let { parseVcsDiffFile(it) }
         }

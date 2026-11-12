@@ -385,7 +385,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         gitBaseLabel = null
         gitMode = "working"
         gitLoading = true
-        loadGit("working")
+        loadGit("working", fallbackToCommitted = true)
     }
 
     fun closeGit() {
@@ -395,7 +395,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         gitLoading = false
     }
 
-    fun loadGit(mode: String = gitMode) {
+    fun loadGit(mode: String = gitMode, fallbackToCommitted: Boolean = false) {
         val c = client ?: return
         val dir = gitDirectory ?: return
         viewModelScope.launch {
@@ -404,12 +404,22 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             gitMode = mode
             if (mode == "working") gitStatus = emptyList()
             gitDiffFiles = emptyList()
+            var switchToCommitted = false
             try {
                 val (info, base, status, diffs) = withContext(Dispatchers.IO) {
                     val i = runCatching { c.vcsInfo(dir) }.getOrDefault(VcsInfo())
                     val b = runCatching { c.vcsBase(dir) }.getOrNull()
                     val s = if (mode == "working") runCatching { c.vcsStatus(dir) }.getOrDefault(emptyList()) else emptyList()
-                    val d = runCatching { c.vcsDiff(dir, mode) }.getOrDefault(emptyList())
+                    // committed 模式在服务端是「merge-base(base)..HEAD」；传 HEAD~1 才是真正的
+                    // 「上一次提交」差异。单提交仓库没有 HEAD~1，退回服务端默认基线。
+                    val d = runCatching {
+                        if (mode == "committed") {
+                            runCatching { c.vcsDiff(dir, mode, "HEAD~1") }
+                                .getOrElse { c.vcsDiff(dir, mode) }
+                        } else {
+                            c.vcsDiff(dir, mode)
+                        }
+                    }.getOrDefault(emptyList())
                     Quad(i, b, s, d)
                 }
                 gitInfo = info
@@ -419,11 +429,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 if (gitSelectedFile != null && diffs.none { it.file == gitSelectedFile }) {
                     gitSelectedFile = diffs.firstOrNull()?.file
                 }
+                // 工作区干净时打开 Git 会是一片空白；自动切到「上一次提交」，至少能看到最近一次改动。
+                switchToCommitted = fallbackToCommitted && mode == "working" &&
+                    info.provider.isNotBlank() && status.isEmpty() && diffs.isEmpty()
             } catch (e: Exception) {
                 gitError = e.message ?: "加载 Git 信息失败"
             } finally {
                 gitLoading = false
             }
+            if (switchToCommitted) loadGit("committed")
         }
     }
 

@@ -455,7 +455,11 @@ class OcClient(rawBase: String, private val password: String) {
      * 否则项目外的文件会 404（也避免 URL 里的 `..` 被规范化掉）。
      */
     suspend fun readFileRaw(path: String): FsFile {
-        val dir = path.substringBeforeLast('/', "")
+        val dir = if (path.startsWith("/")) {
+            path.substringBeforeLast('/', "").ifBlank { "/" }
+        } else {
+            path.substringBeforeLast('/', "")
+        }
         val name = path.substringAfterLast('/')
         val q = if (dir.isBlank()) "" else "?location%5Bdirectory%5D=" + urlEncode(dir)
         val req = request("/api/fs/read/" + urlEncode(name) + q).get().build()

@@ -131,7 +131,7 @@ data: {"id":"evt_...","created":...,"type":"session.text.delta","data":{...}}
 
 - 服务端**不展开 `~`**：`path=~` 会拼成 `<location>/~`，一般 404。客户端在 `AppModel.expandUserPath/expandSessionDir` 里先展开。
 - `list` 的 `path` 可以是绝对路径，且**不限制在 location 内**（可以列 `/`、`/storage`），但返回的 `entry.path` 仍相对 location。
-- `read` 会 `realpath` 后检查是否在 location 内；用「文件父目录」当 location 才能读项目外的文件。
+- `read` 会 `realpath` 后检查是否在 location 内；用「文件父目录」当 location 才能读项目外的文件。根目录下的文件父目录是 `/`，不能退化成「不带 location」（否则会去读 HOME）。
 - `readDirectoryEntries` 的 `type` 描述条目本身：**symlink 是 `SymbolicLink`，会被服务端过滤掉**。所以不要用「一堆 symlink 组成虚拟根」给文件页。
 - 创建会话的 `location.directory` 不要用 `/`：opencode 会把它当项目并可能递归 watch。规范项目根是 `<HOME>/workspace`。
 

@@ -152,6 +152,14 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 设置里的「默认模型」**必须真正落到服务端会话**：新建会话后调 `POST /api/session/{id}/model`，再读回 `/api/session/{id}` 以服务端返回为准；写失败要在 `lastError` 里提示。只改本地 `copy(model=...)` 会在重连或换客户端后退回服务端默认。
 - 登录/断开后的连接页必须使用当前主题（跟随系统 / 浅色 / 深色），根布局要显式铺 `MaterialTheme.colorScheme.background`，
   否则 edge-to-edge 会露出黑色窗口背景。
+- 登录页保存连接：
+  - 只有**真正 ping 通过**的连接才写入 `saved_connections`（老版本已有的 `url`/`password` 会迁移成第一条）。
+  - 地址栏右侧的小箭头下拉已保存列表；每一项显示 `host:port` + 是否带密码，右侧 × 删除。
+  - 选中后同时回填地址和密码；手动输入到已保存的地址时也自动带出密码。
+  - 密码用 Base64 存在同一个 SharedPreferences 里（和现有 `password` 一样是本地明文级别），不要上传。
+- 登录页**连不上就停在登录页**：第一次连接失败不自动重连（`hadConnected=false`），只有已经连上过再掉线才退避重试。
+  - 连接中按钮变成「取消连接」，改地址/密码或点取消都会 `cancelConnect()`，立刻停下。
+  - 从后台回到前台时 `retryIfNeeded()` 也只在 `hadConnected` 时才补一次，登录页不会被反复拉进「连接中」。
 - 外观设置 / 主题色：横向色卡（圆形色块 + 短标签），不要用竖排 OptionRow；外观三张卡（跟随系统=黑白渐变、浅色=白、深色=黑），
   主题色至少 blue/purple/cyan/green/orange/pink/red/teal + 黑白 + 系统取色；点一下立即生效。
 - 卡片/顶栏/底栏的背景要有层次：浅色下 background 用灰白、surfaceVariant 要明显深一点；深色下 surface 比 background 亮、surfaceVariant 更亮。
@@ -270,6 +278,10 @@ app/src/main/java/com/a2heng/opencode/mobile/
   - `TerminalEmulatorFactory.create(...)`；PTY 字节直接 `writeInput(bytes)`，不要再自己 `stripAnsi`。
   - 用户键盘输入走 `onKeyboardInput` 回调 → WebSocket。
 - **PTY resize 必须 `PUT /api/pty/{id}`**（`{size:{rows,cols}}`）；用 `PATCH` 会 404、异常被吞，表现就是「右边一片空白但换行」。
+- **创建 PTY 不要传 `command: "bash"`**：服务端 Windows（opencode serve 跑在 Windows）PATH 里没有 bash，bun-pty 会直接 500，
+  终端页就「新建没反应 / 一片空白」。`POST /api/pty` 不传 command 时由服务端挑默认 shell（Windows 上是 Git Bash / cmd.exe）；
+  客户端先发无 command，旧服务端失败再退回 `bash`。
+- WebSocket 输出在 OkHttp 线程到达，`TerminalEmulator.writeInput()` 必须 post 回主线程（emulator 用主 looper 创建），否则会偶发花屏 / 崩溃。
 - 尺寸来自视图：`onResize` 回调把 rows/cols 发给服务端；不要写死 `40x100`。
 - Activity `windowSoftInputMode=adjustNothing`：键盘不改变窗口；终端尺寸固定。
 - 占位：**固定比例**（竖屏底部 42% 高、横屏右侧 34% 宽），不要跟着键盘高度变化；按钮固定在占位区边缘。

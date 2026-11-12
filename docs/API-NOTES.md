@@ -142,12 +142,16 @@ data: {"id":"evt_...","created":...,"type":"session.text.delta","data":{...}}
 ## 终端 PTY
 
 1. `POST /api/pty`，body `{ command: "bash", cwd?, title? }` → `{ data: Pty }`
+   - **不要写死 `bash`**：Windows 服务端 PATH 里没有 bash 时 bun-pty 直接 500。省略 `command` 由服务端选默认 shell
+     （Windows 上是 `C:/Program Files/Git/bin/bash.exe -l` / cmd.exe），旧服务端不支持省略时再退回 `bash`。
+   - `command` 在 schema 里不是必填；`args` 默认由服务端补。
 2. `POST /api/pty/{id}/connect-token`，**必须带请求头 `x-opencode-ticket: 1`**（否则 403
    `Invalid PTY connect token request`），返回 `{ data: { ticket, expires_in } }`
 3. WebSocket：`ws://host/api/pty/{id}/connect?ticket=<ticket>`
    - 带 ticket 时跳过 Basic 认证
    - 服务端 → 客户端：原始 UTF-8 文本帧（终端输出）；二进制控制帧以 `0x00` 开头，后接 JSON `{cursor}`
    - 客户端 → 服务端：直接发文本（按键/输入）
+   - 客户端收到输出后要切回主线程再 `writeInput()`（emulator 由主 looper 创建）。
 4. `PUT /api/pty/{id}`，body `{ size: { rows, cols } }` 调整窗口大小
 5. `DELETE /api/pty/{id}` 结束
 

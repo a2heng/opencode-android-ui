@@ -15,6 +15,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -71,6 +72,74 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var homeDir by mutableStateOf("")
         private set
+
+    /**
+     * 连接过的服务器（地址 + 密码）。只有真正 ping 通过才写入，
+     * 登录页可以直接下拉选择并自动回填。
+     */
+    var savedConnections by mutableStateOf(loadSavedConnections())
+        private set
+
+    private fun loadSavedConnections(): List<SavedConnection> {
+        val raw = prefs.getString("saved_connections", "").orEmpty()
+        if (raw.isBlank()) {
+            // 老版本只存了一个 url/password，升级后先把它当成第一条；
+            // 用户把列表删空后要尊重空列表，不能再从 url 复活。
+            if (prefs.getBoolean("saved_connections_v1", false)) return emptyList()
+            val legacyUrl = prefs.getString("url", "").orEmpty()
+            if (legacyUrl.isBlank()) return emptyList()
+            return listOf(
+                SavedConnection(
+                    OcClient.normalize(legacyUrl),
+                    prefs.getString("password", "").orEmpty(),
+                ),
+            )
+        }
+        return raw.lineSequence().mapNotNull { line ->
+            val parts = line.split('|', limit = 2)
+            if (parts.size != 2) return@mapNotNull null
+            runCatching {
+                val url = String(android.util.Base64.decode(parts[0], android.util.Base64.NO_WRAP))
+                val pwd = String(android.util.Base64.decode(parts[1], android.util.Base64.NO_WRAP))
+                if (url.isBlank()) null else SavedConnection(url, pwd)
+            }.getOrNull()
+        }.toList()
+    }
+
+    private fun persistSavedConnections() {
+        val enc = { s: String ->
+            android.util.Base64.encodeToString(s.toByteArray(), android.util.Base64.NO_WRAP)
+        }
+        prefs.edit()
+            .putString(
+                "saved_connections",
+                savedConnections.joinToString("\n") { enc(it.url) + "|" + enc(it.password) },
+            )
+            .putBoolean("saved_connections_v1", true)
+            .apply()
+    }
+
+    /** 连接成功后调用：同地址只保留一条，最近使用的排在最前。 */
+    fun rememberConnection(url: String, pwd: String) {
+        val normalized = OcClient.normalize(url)
+        if (normalized.isBlank()) return
+        val next = listOf(SavedConnection(normalized, pwd)) +
+            savedConnections.filterNot { it.url == normalized }
+        savedConnections = next.take(12)
+        persistSavedConnections()
+    }
+
+    fun forgetConnection(url: String) {
+        savedConnections = savedConnections.filterNot { it.url == url }
+        persistSavedConnections()
+    }
+
+    /** 输入地址时按规范化后的地址匹配已保存的连接，用来回填密码。 */
+    fun savedConnectionFor(input: String): SavedConnection? {
+        if (input.isBlank()) return null
+        val normalized = runCatching { OcClient.normalize(input) }.getOrNull() ?: return null
+        return savedConnections.firstOrNull { it.url == normalized }
+    }
 
     /**
      * 运行中发送方式。opencode 的 delivery 只有 steer / queue，且**默认是 steer**
@@ -483,6 +552,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private var eventJob: Job? = null
     private var reloadJob: Job? = null
     private var sessionsJob: Job? = null
+    private var connectJob: Job? = null
+    private var hadConnected = false
+    private val mainHandler = android.os.Handler(Looper.getMainLooper())
 
     // =========================================================================
     // 连接
@@ -492,7 +564,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val normalized = OcClient.normalize(url)
         connecting = true
         connectionError = null
-        viewModelScope.launch {
+        connectJob?.cancel()
+        connectJob = viewModelScope.launch {
             try {
                 val c = OcClient(normalized, pwd)
                 val info = withContext(Dispatchers.IO) { c.ping() } as? JsonObject
@@ -504,8 +577,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     .onSuccess { homeDir = it }
                 connected = true
                 connecting = false
+                hadConnected = true
                 if (remember) {
                     prefs.edit().putString("url", normalized).putString("password", pwd).apply()
+                    // 只有真正连上才进「已保存」，避免把打错的地址留在列表里
+                    rememberConnection(normalized, pwd)
                 }
                 retryJob?.cancel()
                 retryDelay = 5_000L
@@ -514,17 +590,44 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 loadPermissions()
                 loadMeta()
                 startEvents()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 connecting = false
                 connected = false
                 connectionError = e.message ?: e.javaClass.simpleName
-                scheduleReconnect()
+                // 登录页第一次连不上就停在这里，不要一直「连接中」；
+                // 只有用过一段时间后掉线才自动退避重连。
+                if (hadConnected) scheduleReconnect() else stopRetry()
             }
         }
     }
 
-    fun disconnect() {
+    /**
+     * 用户改配置 / 点取消时打断正在进行的连接。
+     * 打断后停在登录页，不自动重试。
+     */
+    fun cancelConnect() {
+        connectJob?.cancel()
+        connectJob = null
+        stopRetry()
+        hadConnected = false
+        connecting = false
+        connectionError = null
+    }
+
+    private fun stopRetry() {
         retryJob?.cancel()
+        retryJob = null
+        retryDelay = 5_000L
+    }
+
+    fun disconnect() {
+        connectJob?.cancel()
+        connectJob = null
+        stopRetry()
+        hadConnected = false
+        connecting = false
         ConnectionService.stop(getApplication())
         eventJob?.cancel()
         reloadJob?.cancel()
@@ -666,13 +769,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private var retryDelay = 5_000L
 
     private fun scheduleReconnect() {
+        if (!hadConnected) return
         if (retryJob?.isActive == true) return
         if (serverUrl.isBlank()) return
         val delayMs = retryDelay
         retryDelay = (retryDelay * 2).coerceAtMost(60_000L)
         retryJob = viewModelScope.launch {
             delay(delayMs)
-            if (!connected && !connecting && serverUrl.isNotBlank()) {
+            if (hadConnected && !connected && !connecting && serverUrl.isNotBlank()) {
                 connect(serverUrl, password)
             }
         }
@@ -685,9 +789,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (serverUrl.isNotBlank()) connect(serverUrl, password)
     }
 
-    /** 回到前台时调用：只在断开时补一次，连上就不动。 */
+    /** 回到前台时调用：只在已经连过、掉线的情况下补一次；登录页上连不上就不重试。 */
     fun retryIfNeeded() {
-        if (!connected && !connecting && serverUrl.isNotBlank()) retryNow()
+        if (hadConnected && !connected && !connecting && serverUrl.isNotBlank()) retryNow()
     }
 
     /**
@@ -1842,15 +1946,22 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun createPty() {
         val c = client ?: return
         viewModelScope.launch {
-            try {
-                val cwd = expandSessionDir(current?.directory)
-                val p = withContext(Dispatchers.IO) { c.ptyCreate("bash", cwd) }
-                if (p != null) {
-                    loadPtys()
-                    attachPty(p)
-                }
-            } catch (e: Exception) {
-                ptyError = e.message
+            ptyError = null
+            val cwd = expandSessionDir(current?.directory)
+            // 先让服务端用自己的默认 shell（Windows 上是 Git Bash / cmd.exe）；
+            // 旧服务端不认「无 command」时再退回 bash。
+            val created = withContext(Dispatchers.IO) {
+                runCatching { c.ptyCreate(null, cwd) }
+                    .recoverCatching { c.ptyCreate("bash", cwd) }
+            }
+            val p = created.getOrNull()
+            if (p != null) {
+                loadPtys()
+                attachPty(p)
+            } else {
+                val detail = created.exceptionOrNull()?.message
+                    ?: "服务端没有返回终端"
+                ptyError = "创建终端失败：$detail"
             }
         }
     }
@@ -1897,13 +2008,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     }
 
                     override fun onMessage(webSocket: WebSocket, text: String) {
-                        ptyEmulator?.writeInput(text.toByteArray())
+                        writePtyOutput(text.toByteArray())
                     }
 
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                         // 控制帧：0x00 + JSON {cursor}
                         if (bytes.size > 1 && bytes[0] == 0.toByte()) return
-                        ptyEmulator?.writeInput(bytes.toByteArray())
+                        writePtyOutput(bytes.toByteArray())
                     }
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -1927,6 +2038,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun sendPty(text: String) {
         ptySocket?.send(text)
+    }
+
+    /**
+     * 服务端输出在 OkHttp 线程到达；libvterm 的 emulator 是主线程 looper，
+     * 统一 post 到主线程再写入，避免偶发花屏 / 崩溃。
+     */
+    private fun writePtyOutput(bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        mainHandler.post { ptyEmulator?.writeInput(bytes) }
     }
 
     fun updatePtyFontSize(size: Float) {

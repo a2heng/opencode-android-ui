@@ -477,9 +477,15 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun ptyList(): List<PtyInfo> =
         unwrapArray(get("/api/pty")).mapNotNull { (it as? JsonObject)?.let(::parsePty) }
 
-    suspend fun ptyCreate(command: String = "bash", cwd: String? = null): PtyInfo? {
+    /**
+     * 创建 PTY。`command = null` 时不传 command，让服务端用**自己的默认 shell**。
+     *
+     * 不要写死 "bash"：Windows 服务端的 PATH 里通常没有 bash，
+     * bun-pty 会直接 500；而服务端默认 shell 会解析成 Git Bash / cmd.exe。
+     */
+    suspend fun ptyCreate(command: String? = null, cwd: String? = null): PtyInfo? {
         val body = buildJsonObject {
-            put("command", JsonPrimitive(command))
+            if (!command.isNullOrBlank()) put("command", JsonPrimitive(command))
             put("title", JsonPrimitive("手机终端"))
             if (!cwd.isNullOrBlank()) put("cwd", JsonPrimitive(cwd))
         }

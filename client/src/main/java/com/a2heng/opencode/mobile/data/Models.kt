@@ -410,6 +410,12 @@ data class Attachment(val name: String, val mime: String, val base64: String)
 /** 从系统分享面板进来的一次性内容。 */
 data class SharedPayload(val text: String?, val image: Attachment?)
 
+/**
+ * 登录页保存的连接。只在真正连上过服务端之后才写入，
+ * 下拉列表里选中即可把地址和密码一起填回来。
+ */
+data class SavedConnection(val url: String, val password: String)
+
 data class PtyInfo(
     val id: String,
     val title: String,

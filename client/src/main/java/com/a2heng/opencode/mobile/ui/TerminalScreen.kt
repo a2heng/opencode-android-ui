@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,17 +27,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -86,7 +82,7 @@ fun TerminalScreen(model: AppModel) {
         TerminalView(model, active)
     } else if (model.localTerminalOpen) {
         BackHandler { model.closeLocalTerminalView() }
-        LocalTerminalView(model) { model.closeLocalTerminalView() }
+        LocalTerminalView(model)
     } else {
         // Ojo: antes había un lambda dentro de otro lambda y el toque no hacía
         // nada (el warning "Lambda expression is never invoked").
@@ -256,7 +252,6 @@ internal fun TerminalPane(
     onFontSize: (Float) -> Unit,
     onInput: (String) -> Unit,
     placeholder: String,
-    onBack: (() -> Unit)? = null,
 ) {
     val focus = remember { FocusRequester() }
     val appContext = LocalContext.current.applicationContext
@@ -330,25 +325,6 @@ internal fun TerminalPane(
                         .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
                 )
                 Box(Modifier.padding(top = 4.dp), contentAlignment = Alignment.Center) { controls(false) }
-            }
-        }
-        if (onBack != null) {
-            FilledTonalIconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(start = 8.dp, top = 8.dp)
-                    .size(38.dp),
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "返回",
-                    modifier = Modifier.size(19.dp),
-                )
             }
         }
     }

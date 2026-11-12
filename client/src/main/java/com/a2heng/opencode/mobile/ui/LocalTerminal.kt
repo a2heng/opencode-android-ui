@@ -12,7 +12,7 @@ import com.a2heng.opencode.mobile.data.AppModel
  * 按键区、字号、固定键盘占位与服务端 PTY 完全一致。
  */
 @Composable
-fun LocalTerminalView(model: AppModel, onBack: () -> Unit) {
+fun LocalTerminalView(model: AppModel) {
     LaunchedEffect(Unit) { model.ensureLocalTerminal() }
     TerminalPane(
         emulator = model.localTerminalEmulator,
@@ -24,6 +24,5 @@ fun LocalTerminalView(model: AppModel, onBack: () -> Unit) {
             model.localTerminalError != null -> model.localTerminalError ?: ""
             else -> "正在连接 shell…"
         },
-        onBack = onBack,
     )
 }

@@ -454,6 +454,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private var ptySocket: WebSocket? = null
     private var ptyDecoding = false
 
+    // 本机 Termux 终端：进程和 emulator 放在 ViewModel，旋转屏幕/切页不丢。
+    var localTerminalOpen by mutableStateOf(false)
+        private set
+    var localTerminalEmulator by mutableStateOf<TerminalEmulator?>(null)
+        private set
+    var localTerminalStarting by mutableStateOf(false)
+        private set
+    var localTerminalError by mutableStateOf<String?>(null)
+        private set
+    private var localTerminalProcess: Process? = null
+    private var localTerminalReader: Job? = null
+
     private var eventJob: Job? = null
     private var reloadJob: Job? = null
     private var sessionsJob: Job? = null
@@ -1727,6 +1739,87 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- 本机 Termux 终端 -----------------------------------------------
+    /**
+     * Abre la vista del terminal local. El proceso y el emulator viven en el
+     * ViewModel: rotar la pantalla o cambiar de pestaña no los destruye.
+     */
+    fun openLocalTerminal() {
+        localTerminalOpen = true
+        ensureLocalTerminal()
+    }
+
+    fun closeLocalTerminalView() {
+        localTerminalOpen = false
+    }
+
+    fun ensureLocalTerminal() {
+        localTerminalError = null
+        if (localTerminalEmulator != null && localTerminalProcess?.isAlive == true) return
+        if (localTerminalStarting) return
+        val spawner = com.a2heng.opencode.mobile.LocalShellHost.spawner
+        if (spawner == null) {
+            localTerminalError = "本机终端不可用"
+            return
+        }
+        localTerminalStarting = true
+        viewModelScope.launch {
+            val p = withContext(Dispatchers.IO) {
+                runCatching { spawner.spawn() }.getOrNull()
+            }
+            if (p == null) {
+                localTerminalStarting = false
+                localTerminalError = "无法启动本机 shell（toolbox 可能还在安装）"
+                return@launch
+            }
+            runCatching { localTerminalProcess?.destroy() }
+            localTerminalProcess = p
+            val emu = TerminalEmulatorFactory.create(
+                looper = Looper.getMainLooper(),
+                initialRows = 40,
+                initialCols = 100,
+                defaultForeground = Color(0xFFE6EDF3),
+                defaultBackground = Color(0xFF0E1116),
+                onKeyboardInput = { bytes -> writeLocalTerminal(bytes) },
+                onResize = { },
+            )
+            localTerminalEmulator = emu
+            localTerminalStarting = false
+            localTerminalReader?.cancel()
+            localTerminalReader = viewModelScope.launch(Dispatchers.IO) {
+                val buf = ByteArray(8192)
+                try {
+                    while (true) {
+                        val n = p.inputStream.read(buf)
+                        if (n <= 0) break
+                        val chunk = buf.copyOf(n)
+                        withContext(Dispatchers.Main) { emu.writeInput(chunk) }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    private fun writeLocalTerminal(bytes: ByteArray) {
+        runCatching {
+            localTerminalProcess?.outputStream?.write(bytes)
+            localTerminalProcess?.outputStream?.flush()
+        }
+    }
+
+    fun sendLocalTerminal(text: String) = writeLocalTerminal(text.toByteArray())
+
+    fun endLocalTerminal() {
+        localTerminalReader?.cancel()
+        localTerminalReader = null
+        runCatching { localTerminalProcess?.destroy() }
+        localTerminalProcess = null
+        localTerminalEmulator = null
+        localTerminalStarting = false
+        localTerminalOpen = false
+    }
+
     fun createPty() {
         val c = client ?: return
         viewModelScope.launch {
@@ -1848,5 +1941,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 ptyError = e.message
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        localTerminalReader?.cancel()
+        localTerminalReader = null
+        runCatching { localTerminalProcess?.destroy() }
+        localTerminalProcess = null
     }
 }

@@ -279,9 +279,11 @@ app/src/main/java/com/a2heng/opencode/mobile/
 - 字体：打包 `assets/fonts/SarasaFixedSC-Regular.ttf`（OFL，GB2312 子集，2.1MB，拉丁 0.5em/中文 1em）；加载失败回退 `DroidSansMono.ttf`。
 - 字号 5–26sp，存 SharedPreferences（`pty_font_size`）；换字号用 `key(fontSize)` 重建视图（emulator 屏幕缓冲不丢）。
 - **本机 Termux 终端（Adia）**：宿主通过 `LocalShellHost.spawner` 注入 `LocalRuntime.localShell()`，用 proot + `prefix/bin/script` 开真 PTY。
+  - **进程和 emulator 必须放在 `AppModel`**（`localTerminalEmulator` / `localTerminalProcess`），不要放在 composable 的 `remember` 里：旋转屏幕、切页签会重建组合，旧实现会直接退回终端列表并杀掉 shell。
+  - 本机终端和服务器 PTY 共用 `TerminalPane`（`TerminalScreen.kt`）：占位区、Ctrl/Shift/Alt、Tab/^C/Esc、方向键、Home/End、A−/A+ 完全一致。不要再写第二套全屏终端布局。
   - `PtyList(onOpenLocal = ...)` 的 lambda **不要写成 `({ { ... } })`**：那会变成「返回 lambda 的 lambda」，点「打开」什么也不发生（编译只给 `Lambda expression is never invoked` 警告）。用显式的 `val openLocal: (() -> Unit)? = if (...) { { ... } } else null`。
   - spawn 在 `Dispatchers.IO` 做（proot/toolbox 检查很慢）；`script` 不存在时先从 APK 里的 `util-linux.deb` + 依赖补装，仍失败就退回 `bash -i -l`。
-  - `script` 若在 350ms 内退出（缺库/没有 `/dev/ptmx`），宿主自动改开无 PTY 的 bash，避免终端一片黑。
+  - `script` 若在 350ms 内退出（缺库/没有 `/dev/ptmx`），宿主自动改开无 PTY 的 bash，避免终端一片黑。PTY 尺寸先固定 `stty rows 40 cols 100`。
 - **服务端 PTY**（独立 APK 连电脑）仍按上面的 `/api/pty` 流程；Android 上 bun-pty 起不来时用本机终端。
 
 ### 4.12 文件

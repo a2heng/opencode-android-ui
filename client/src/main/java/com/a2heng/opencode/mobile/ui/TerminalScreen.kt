@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,8 +35,10 @@ import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -69,6 +72,7 @@ import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.PtyInfo
 import com.a2heng.opencode.mobile.LocalShellHost
 import org.connectbot.terminal.Terminal
+import org.connectbot.terminal.TerminalEmulator
 
 @Composable
 fun TerminalScreen(model: AppModel) {
@@ -76,19 +80,18 @@ fun TerminalScreen(model: AppModel) {
         if (model.ptys.isEmpty()) model.loadPtys()
     }
 
-    var localOpen by remember { mutableStateOf(false) }
     val active = model.ptyActive
     if (active != null) {
         BackHandler { model.detachPty() }
         TerminalView(model, active)
-    } else if (localOpen) {
-        BackHandler { localOpen = false }
-        LocalTerminalView(model) { localOpen = false }
+    } else if (model.localTerminalOpen) {
+        BackHandler { model.closeLocalTerminalView() }
+        LocalTerminalView(model) { model.closeLocalTerminalView() }
     } else {
         // Ojo: antes había un lambda dentro de otro lambda y el toque no hacía
         // nada (el warning "Lambda expression is never invoked").
         val openLocal: (() -> Unit)? = if (LocalShellHost.available) {
-            { localOpen = true }
+            { model.openLocalTerminal() }
         } else {
             null
         }
@@ -230,28 +233,61 @@ private val controlKeys = listOf(
 
 @Composable
 private fun TerminalView(model: AppModel, pty: PtyInfo) {
-    val emulator = model.ptyEmulator
+    TerminalPane(
+        emulator = model.ptyEmulator,
+        fontSize = model.ptyFontSize,
+        onFontSize = model::updatePtyFontSize,
+        onInput = model::sendPty,
+        placeholder = "正在连接终端…",
+    )
+}
+
+/**
+ * 终端外壳：服务端 PTY 和本机 Termux 共用。
+ *
+ * 占位区固定（竖屏底部 46% 高 / 横屏右侧 37% 宽），软键盘不改变它；
+ * 按键区始终在占位区顶部。旋转屏幕时 emulator/进程由 ViewModel 持有，
+ * 这里只负责重新绑定视图。
+ */
+@Composable
+internal fun TerminalPane(
+    emulator: TerminalEmulator?,
+    fontSize: Float,
+    onFontSize: (Float) -> Unit,
+    onInput: (String) -> Unit,
+    placeholder: String,
+    onBack: (() -> Unit)? = null,
+) {
     val focus = remember { FocusRequester() }
-    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    val terminalTypeface = remember { terminalTypeface(appContext) }
+    val appContext = LocalContext.current.applicationContext
+    val typeface = remember { terminalTypeface(appContext) }
     var ctrl by remember { mutableStateOf(false) }
     var shift by remember { mutableStateOf(false) }
     var alt by remember { mutableStateOf(false) }
 
     val cfg = LocalConfiguration.current
     val wide = cfg.screenWidthDp >= 600
-    // 固定键盘占位（不随键盘高度变化）：竖屏底部 42% 高，横屏右侧 34% 宽
+    // 固定键盘占位（不随键盘高度变化）：竖屏底部 46% 高，横屏右侧 37% 宽
     val reserved = if (wide) (cfg.screenWidthDp * 0.37f).dp else (cfg.screenHeightDp * 0.46f).dp
     val controls: @Composable (Boolean) -> Unit = { compact ->
-        TerminalControls(model, ctrl, shift, alt, compact) { c, s, a -> ctrl = c; shift = s; alt = a }
+        TerminalControls(
+            fontSize = fontSize,
+            onFontSize = onFontSize,
+            onInput = onInput,
+            ctrl = ctrl,
+            shift = shift,
+            alt = alt,
+            compact = compact,
+        ) { c, s, a -> ctrl = c; shift = s; alt = a }
     }
 
     Box(Modifier.fillMaxSize()) {
         TerminalBox(
-            model = model,
             emulator = emulator,
+            fontSize = fontSize,
+            typeface = typeface,
             focus = focus,
-            typeface = terminalTypeface,
+            placeholder = placeholder,
             modifier = Modifier
                 .fillMaxSize()
                 .then(if (wide) Modifier.padding(end = reserved) else Modifier.padding(bottom = reserved)),
@@ -296,32 +332,52 @@ private fun TerminalView(model: AppModel, pty: PtyInfo) {
                 Box(Modifier.padding(top = 4.dp), contentAlignment = Alignment.Center) { controls(false) }
             }
         }
+        if (onBack != null) {
+            FilledTonalIconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(start = 8.dp, top = 8.dp)
+                    .size(38.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun TerminalBox(
-    model: AppModel,
-    emulator: org.connectbot.terminal.TerminalEmulator?,
-    focus: FocusRequester,
+    emulator: TerminalEmulator?,
+    fontSize: Float,
     typeface: Typeface,
+    focus: FocusRequester,
+    placeholder: String,
     modifier: Modifier,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier) {
         if (emulator == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "正在连接终端…",
+                    placeholder,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
-            key(model.ptyFontSize) {
+            key(fontSize) {
                 Terminal(
                     terminalEmulator = emulator,
                     modifier = Modifier.fillMaxSize(),
-                    initialFontSize = model.ptyFontSize.sp,
+                    initialFontSize = fontSize.sp,
                     minFontSize = 5.sp,
                     maxFontSize = 28.sp,
                     typeface = typeface,
@@ -347,7 +403,9 @@ private fun arrowSeq(dir: Char, ctrl: Boolean, shift: Boolean, alt: Boolean): St
  */
 @Composable
 private fun TerminalControls(
-    model: AppModel,
+    fontSize: Float,
+    onFontSize: (Float) -> Unit,
+    onInput: (String) -> Unit,
     ctrl: Boolean,
     shift: Boolean,
     alt: Boolean,
@@ -367,30 +425,30 @@ private fun TerminalControls(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(gap)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    KeyChip("A−", chipW, chipH, chipFont) { model.updatePtyFontSize(model.ptyFontSize - 1f) }
-                    KeyChip("Esc", chipW, chipH, chipFont) { model.sendPty("\u001b") }
-                    KeyChip("^C", chipW, chipH, chipFont) { model.sendPty("\u0003") }
+                    KeyChip("A−", chipW, chipH, chipFont) { onFontSize(fontSize - 1f) }
+                    KeyChip("Esc", chipW, chipH, chipFont) { onInput("\u001b") }
+                    KeyChip("^C", chipW, chipH, chipFont) { onInput("\u0003") }
                     ToggleChip("Ctrl", ctrl, chipW, chipH, chipFont) { onMods(!ctrl, shift, alt) }
                     ToggleChip("Alt", alt, chipW, chipH, chipFont) { onMods(ctrl, shift, !alt) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    KeyChip("A+", chipW, chipH, chipFont) { model.updatePtyFontSize(model.ptyFontSize + 1f) }
-                    KeyChip("Tab", chipW, chipH, chipFont) { model.sendPty(if (shift) "\u001b[Z" else "\t") }
-                    EnterChip(chipW, chipH, chipFont) { cr -> model.sendPty(if (cr) "\r" else "\n") }
+                    KeyChip("A+", chipW, chipH, chipFont) { onFontSize(fontSize + 1f) }
+                    KeyChip("Tab", chipW, chipH, chipFont) { onInput(if (shift) "\u001b[Z" else "\t") }
+                    EnterChip(chipW, chipH, chipFont) { cr -> onInput(if (cr) "\r" else "\n") }
                     ToggleChip("Shift", shift, chipW, chipH, chipFont) { onMods(ctrl, !shift, alt) }
-                    KeyChip("Del", chipW, chipH, chipFont) { model.sendPty("\u007f") }
+                    KeyChip("Del", chipW, chipH, chipFont) { onInput("\u007f") }
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(gap)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    KeyChip("Home", chipW, chipH, chipFont) { model.sendPty("\u001b[H") }
-                    KeyChip("↑", chipW, chipH, chipFont) { model.sendPty(arrowSeq('A', ctrl, shift, alt)) }
-                    KeyChip("End", chipW, chipH, chipFont) { model.sendPty("\u001b[F") }
+                    KeyChip("Home", chipW, chipH, chipFont) { onInput("\u001b[H") }
+                    KeyChip("↑", chipW, chipH, chipFont) { onInput(arrowSeq('A', ctrl, shift, alt)) }
+                    KeyChip("End", chipW, chipH, chipFont) { onInput("\u001b[F") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    KeyChip("←", chipW, chipH, chipFont) { model.sendPty(arrowSeq('D', ctrl, shift, alt)) }
-                    KeyChip("↓", chipW, chipH, chipFont) { model.sendPty(arrowSeq('B', ctrl, shift, alt)) }
-                    KeyChip("→", chipW, chipH, chipFont) { model.sendPty(arrowSeq('C', ctrl, shift, alt)) }
+                    KeyChip("←", chipW, chipH, chipFont) { onInput(arrowSeq('D', ctrl, shift, alt)) }
+                    KeyChip("↓", chipW, chipH, chipFont) { onInput(arrowSeq('B', ctrl, shift, alt)) }
+                    KeyChip("→", chipW, chipH, chipFont) { onInput(arrowSeq('C', ctrl, shift, alt)) }
                 }
             }
         }

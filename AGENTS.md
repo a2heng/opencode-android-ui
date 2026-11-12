@@ -4,7 +4,7 @@
 
 ## 1. 项目定位
 
-- 仓库：`a2heng/opencode-android-ui`（公开 · MIT），本机 `~/opencode-android-ui`。
+- 仓库：`a2heng/opencode-android-ui`（公开 · MIT），本机 `D:/opencode-android-ui`（Git Bash：`/d/opencode-android-ui`）。
 - 原生 Kotlin + Jetpack Compose（`compileSdk 37` / `minSdk 26` / AGP 9.1.1 / Gradle 9.3.1 / Kotlin 2.4.21 / Compose 1.11.4），不是 WebView 壳。AGP 9 内置 Kotlin（**不要再加 `org.jetbrains.kotlin.android`**），`resValues = true` 要显式打开。
 - 直连局域网 opencode 服务 `http://<电脑>:42000`；Basic 用户名固定 `opencode`，密码 = 服务端 `OPENCODE_PASSWORD`。
 - 正式包 `com.a2heng.opencode.mobile`，开发包 `com.a2heng.opencode.mobile.debug`（名称 `OpenCode Dev`，图标带 DEV 角标，可与正式版共存）。
@@ -12,7 +12,7 @@
 ## 2. 构建与安装（只做 debug）
 
 ```bash
-cd ~/opencode-android-ui
+cd /d/opencode-android-ui
 ./gradlew assembleDebug
 adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 ```

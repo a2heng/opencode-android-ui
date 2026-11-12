@@ -64,6 +64,8 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   `AppDialog` 只留给确认框（清空输入、中断、回退、重命名、删除）。
 - 进出场统一用 `PickerPageHost`（240ms 滑入 / 190ms 滑出 + 淡入淡出），
   放在页面根部的 Box 里铺满整屏。
+- **选择页不能放在 `verticalScroll` 的 Column 里面**：滚动列给子项无限高度，
+  `fillMaxSize` 会被压成 0 高，表现就是「点了没反应」；设置页就是踩过这个坑。
 
 ### 4.2 会话列表
 

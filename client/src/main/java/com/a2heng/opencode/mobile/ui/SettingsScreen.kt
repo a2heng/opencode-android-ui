@@ -59,227 +59,229 @@ import com.a2heng.opencode.mobile.data.AppModel
 fun SettingsScreen(model: AppModel) {
     var showModelPicker by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { model.loadMeta() }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text("连接", style = MaterialTheme.typography.titleSmall)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(),
+    // 选择页必须放在滚动 Column 外面：verticalScroll 给子项无限高度，
+    // fillMaxSize 的选择页会被压成 0 高度，表现就是「点默认模型没反应」。
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Text("连接", style = MaterialTheme.typography.titleSmall)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    LabelValue("服务器", model.serverUrl)
-                    LabelValue("服务端版本", if (model.serverVersion.isBlank()) "未知" else "v${model.serverVersion}")
-                    LabelValue("认证", if (model.password.isBlank()) "无密码" else "Basic · opencode")
-                }
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = { model.disconnect() }) {
-                    Icon(
-                        Icons.Rounded.Logout,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp),
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text("断开连接", color = MaterialTheme.colorScheme.error)
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LabelValue("服务器", model.serverUrl)
+                        LabelValue("服务端版本", if (model.serverVersion.isBlank()) "未知" else "v${model.serverVersion}")
+                        LabelValue("认证", if (model.password.isBlank()) "无密码" else "Basic · opencode")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { model.disconnect() }) {
+                        Icon(
+                            Icons.Rounded.Logout,
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("断开连接", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
-        }
 
-        Spacer(Modifier.height(8.dp))
-        Text("默认模型", style = MaterialTheme.typography.titleSmall)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickableNoRipple {
-                        model.loadMeta()
-                        showModelPicker = true
-                    }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Spacer(Modifier.height(8.dp))
+            Text("默认模型", style = MaterialTheme.typography.titleSmall)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.size(36.dp),
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickableNoRipple {
+                            model.loadMeta()
+                            showModelPicker = true
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Rounded.Tune,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Rounded.Tune,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("选择模型", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Text(
+                            model.defaultModel?.let {
+                                modelDisplay(it, model.modelGroupById) + " · " + variantLabel(it.variant)
+                            } ?: model.serverDefaultModel?.let {
+                                "服务器默认 · " + modelDisplay(it, model.modelGroupById)
+                            } ?: "服务器默认",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
                         )
                     }
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("选择模型", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                    Text(
-                        model.defaultModel?.let {
-                            modelDisplay(it, model.modelGroupById) + " · " + variantLabel(it.variant)
-                        } ?: model.serverDefaultModel?.let {
-                            "服务器默认 · " + modelDisplay(it, model.modelGroupById)
-                        } ?: "服务器默认",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
+                    Icon(
+                        Icons.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
                     )
                 }
-                Icon(
-                    Icons.Rounded.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
             }
-        }
 
-        Spacer(Modifier.height(8.dp))
-        Text("外观", style = MaterialTheme.typography.titleSmall)
-        Row(
-            Modifier.fillMaxWidth().padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            AppearanceSwatch("跟随系统", "system", model.appearance == "system") { model.updateAppearance("system") }
-            AppearanceSwatch("浅色", "light", model.appearance == "light") { model.updateAppearance("light") }
-            AppearanceSwatch("深色", "dark", model.appearance == "dark") { model.updateAppearance("dark") }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text("主题色", style = MaterialTheme.typography.titleSmall)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            themePresetKeys().forEach { key ->
-                ThemeSwatch(key, selected = model.themeMode == key) { model.updateThemeMode(key) }
+            Spacer(Modifier.height(8.dp))
+            Text("外观", style = MaterialTheme.typography.titleSmall)
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                AppearanceSwatch("跟随系统", "system", model.appearance == "system") { model.updateAppearance("system") }
+                AppearanceSwatch("浅色", "light", model.appearance == "light") { model.updateAppearance("light") }
+                AppearanceSwatch("深色", "dark", model.appearance == "dark") { model.updateAppearance("dark") }
             }
-        }
 
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("运行中发送消息时", style = MaterialTheme.typography.titleSmall)
-        OptionRow(
-            title = "steer（默认）",
-            subtitle = "在下一个步骤前插入，引导当前这轮回答；opencode 默认行为",
-            selected = model.sendMode == "steer",
-        ) { model.updateSendMode("steer") }
-        OptionRow(
-            title = "queue",
-            subtitle = "不打断当前回答；这轮结束后作为下一轮输入",
-            selected = model.sendMode == "queue",
-        ) { model.updateSendMode("queue") }
-        OptionRow(
-            title = "中断后发送",
-            subtitle = "先中断当前回答再发送；本 App 的客户端行为，不是 opencode delivery",
-            selected = model.sendMode == "interrupt",
-        ) { model.updateSendMode("interrupt") }
-
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("聊天显示", style = MaterialTheme.typography.titleSmall)
-        OptionRow(
-            title = "精简",
-            subtitle = "工具压成一行，点一下用气泡看完整内容",
-            selected = model.detailLevel == "compact",
-        ) { model.updateDetailLevel("compact") }
-        OptionRow(
-            title = "适中",
-            subtitle = "工具/思考先预览一部分，超出点「展开」看完整",
-            selected = model.detailLevel == "full",
-        ) { model.updateDetailLevel("full") }
-        OptionRow(
-            title = "完整",
-            subtitle = "全部平铺，不再折叠或展开",
-            selected = model.detailLevel == "expanded",
-        ) { model.updateDetailLevel("expanded") }
-
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("更新", style = MaterialTheme.typography.titleSmall)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickableNoRipple { model.checkUpdate() }
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text("检查更新", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    model.updateMessage ?: "当前 v${model.appVersion}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (model.checkingUpdate) {
-                androidx.compose.material3.CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                )
-            }
-        }
-
-        val info = model.updateInfo
-        if (info != null && com.a2heng.opencode.mobile.data.UpdateClient.isNewer(model.appVersion, info.tag)) {
+            Spacer(Modifier.height(10.dp))
+            Text("主题色", style = MaterialTheme.typography.titleSmall)
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickableNoRipple { model.downloadUpdate() }
+                    .horizontalScroll(rememberScrollState())
+                    .padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                themePresetKeys().forEach { key ->
+                    ThemeSwatch(key, selected = model.themeMode == key) { model.updateThemeMode(key) }
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text("运行中发送消息时", style = MaterialTheme.typography.titleSmall)
+            OptionRow(
+                title = "steer（默认）",
+                subtitle = "在下一个步骤前插入，引导当前这轮回答；opencode 默认行为",
+                selected = model.sendMode == "steer",
+            ) { model.updateSendMode("steer") }
+            OptionRow(
+                title = "queue",
+                subtitle = "不打断当前回答；这轮结束后作为下一轮输入",
+                selected = model.sendMode == "queue",
+            ) { model.updateSendMode("queue") }
+            OptionRow(
+                title = "中断后发送",
+                subtitle = "先中断当前回答再发送；本 App 的客户端行为，不是 opencode delivery",
+                selected = model.sendMode == "interrupt",
+            ) { model.updateSendMode("interrupt") }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text("聊天显示", style = MaterialTheme.typography.titleSmall)
+            OptionRow(
+                title = "精简",
+                subtitle = "工具压成一行，点一下用气泡看完整内容",
+                selected = model.detailLevel == "compact",
+            ) { model.updateDetailLevel("compact") }
+            OptionRow(
+                title = "适中",
+                subtitle = "工具/思考先预览一部分，超出点「展开」看完整",
+                selected = model.detailLevel == "full",
+            ) { model.updateDetailLevel("full") }
+            OptionRow(
+                title = "完整",
+                subtitle = "全部平铺，不再折叠或展开",
+                selected = model.detailLevel == "expanded",
+            ) { model.updateDetailLevel("expanded") }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text("更新", style = MaterialTheme.typography.titleSmall)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickableNoRipple { model.checkUpdate() }
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("下载并安装 ${info.tag}", style = MaterialTheme.typography.bodyMedium)
+                    Text("检查更新", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        if (model.downloadingUpdate) "下载中 ${model.updateProgress}%"
-                        else "APK 来自 GitHub Release（${info.tag}）",
+                        model.updateMessage ?: "当前 v${model.appVersion}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (model.downloadingUpdate) {
+                if (model.checkingUpdate) {
                     androidx.compose.material3.CircularProgressIndicator(
-                        progress = { model.updateProgress / 100f },
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
                     )
                 }
             }
+
+            val info = model.updateInfo
+            if (info != null && com.a2heng.opencode.mobile.data.UpdateClient.isNewer(model.appVersion, info.tag)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickableNoRipple { model.downloadUpdate() }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("下载并安装 ${info.tag}", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (model.downloadingUpdate) "下载中 ${model.updateProgress}%"
+                            else "APK 来自 GitHub Release（${info.tag}）",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (model.downloadingUpdate) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            progress = { model.updateProgress / 100f },
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text("关于", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "OpenCode 安卓 UI v${model.appVersion}（MIT）\n" +
+                    "数据全部来自局域网 opencode 服务，App 只在内存里做聚合。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(24.dp))
         }
 
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("关于", style = MaterialTheme.typography.titleSmall)
-        Text(
-            "OpenCode 安卓 UI v${model.appVersion}（MIT）\n" +
-                "数据全部来自局域网 opencode 服务，App 只在内存里做聚合。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(24.dp))
-    }
-
-    if (showModelPicker) {
         val noneLabel = model.serverDefaultModel?.let {
             "服务器默认（${modelDisplay(it, model.modelGroupById)}）"
         } ?: "服务器默认"

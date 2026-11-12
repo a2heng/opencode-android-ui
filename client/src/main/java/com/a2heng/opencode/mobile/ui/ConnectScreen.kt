@@ -75,7 +75,7 @@ fun ConnectScreen(model: AppModel) {
                 )
             }
             Spacer(Modifier.height(20.dp))
-            Text("OpenCode Mobile", style = MaterialTheme.typography.headlineSmall)
+            Text("OpenCode 安卓 UI", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(6.dp))
             Text(
                 "连接局域网里的 opencode 服务：会话、流式回答、缓存命中率、文件与终端。",

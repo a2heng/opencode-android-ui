@@ -1,7 +1,7 @@
-# OpenCode Mobile
+# OpenCode 安卓 UI
 
-[![CI](https://github.com/a2heng/opencode-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/a2heng/opencode-mobile/actions/workflows/ci.yml)
-[![Release](https://github.com/a2heng/opencode-mobile/actions/workflows/release.yml/badge.svg)](https://github.com/a2heng/opencode-mobile/actions/workflows/release.yml)
+[![CI](https://github.com/a2heng/opencode-android-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/a2heng/opencode-android-ui/actions/workflows/ci.yml)
+[![Release](https://github.com/a2heng/opencode-android-ui/actions/workflows/release.yml/badge.svg)](https://github.com/a2heng/opencode-android-ui/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 局域网 [opencode](https://opencode.ai) 的原生 Android 客户端：Kotlin + Jetpack Compose，
@@ -9,7 +9,7 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/a2heng/opencode-mobile/releases) 下载 `opencode-mobile-x.y.z.apk`（CI 签名）。
+1. 从 [Releases](https://github.com/a2heng/opencode-android-ui/releases) 下载 `opencode-android-ui-x.y.z.apk`（CI 签名）。
 2. Android 8.0+，手机与电脑在同一局域网。
 3. 服务端开放局域网并设置密码：
 
@@ -52,7 +52,7 @@ Release（需要签名凭据，见下节）：
 
 ```bash
 OM_KEYSTORE=/abs/path/release.jks \
-OM_KEY_ALIAS=opencode-mobile \
+OM_KEY_ALIAS=opencode-android-ui \
 OM_KEY_PASS=****** \
 OM_REQUIRE_SIGNING=1 \
 ./gradlew assembleRelease -PomVersionName=0.1.3 -PomVersionCode=103
@@ -68,7 +68,7 @@ OM_REQUIRE_SIGNING=1 \
 
 ## 反馈
 
-- 用 [Issues](https://github.com/a2heng/opencode-mobile/issues) 提，已提供 Bug / 功能建议模板。
+- 用 [Issues](https://github.com/a2heng/opencode-android-ui/issues) 提，已提供 Bug / 功能建议模板。
 - **优先范围**：opencode 原生（Web / TUI / Desktop）已经有、但 Android 端还没实现或不好用的能力；
   纯手机端的新点子也欢迎，只是排序会靠后。
 - 参考实现放在子模块 `reference/opencode`（只用于对齐 API 语义，界面按手机习惯重做，不复刻）。

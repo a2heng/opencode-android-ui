@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 /** 从 GitHub Releases 检查/下载更新（公开仓库，不需要 token）。 */
 object UpdateClient {
 
-    private const val API = "https://api.github.com/repos/a2heng/opencode-mobile/releases/latest"
+    private const val API = "https://api.github.com/repos/a2heng/opencode-android-ui/releases/latest"
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 

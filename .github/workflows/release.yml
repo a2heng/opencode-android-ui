@@ -89,14 +89,14 @@ jobs:
         run: |
           mkdir -p out
           SRC=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          NAME="opencode-mobile-${{ steps.version.outputs.name }}.apk"
+          NAME="opencode-android-ui-${{ steps.version.outputs.name }}.apk"
           cp "$SRC" "out/$NAME"
           (cd out && sha256sum "$NAME" > "$NAME.sha256")
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: opencode-mobile-${{ steps.version.outputs.name }}
+          name: opencode-android-ui-${{ steps.version.outputs.name }}
           path: out/*
           if-no-files-found: error
 
@@ -106,6 +106,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" out/* \
-            --title "OpenCode Mobile $GITHUB_REF_NAME" \
+            --title "OpenCode 安卓 UI $GITHUB_REF_NAME" \
             --generate-notes \
             --verify-tag

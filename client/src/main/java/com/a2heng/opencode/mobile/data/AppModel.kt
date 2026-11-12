@@ -618,7 +618,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val dir = java.io.File(getApplication<Application>().cacheDir, "update").apply { mkdirs() }
-                val dest = java.io.File(dir, "opencode-mobile-${info.tag.removePrefix("v")}.apk")
+                val dest = java.io.File(dir, "opencode-android-ui-${info.tag.removePrefix("v")}.apk")
                 withContext(Dispatchers.IO) {
                     UpdateClient.download(url, dest) { p -> updateProgress = p }
                 }

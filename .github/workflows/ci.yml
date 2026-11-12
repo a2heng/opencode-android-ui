@@ -48,6 +48,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
-          name: opencode-mobile-debug
+          name: opencode-android-ui-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

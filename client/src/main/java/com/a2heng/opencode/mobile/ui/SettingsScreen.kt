@@ -270,7 +270,7 @@ fun SettingsScreen(model: AppModel) {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("关于", style = MaterialTheme.typography.titleSmall)
         Text(
-            "OpenCode Mobile v${model.appVersion}（MIT）\n" +
+            "OpenCode 安卓 UI v${model.appVersion}（MIT）\n" +
                 "数据全部来自局域网 opencode 服务，App 只在内存里做聚合。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

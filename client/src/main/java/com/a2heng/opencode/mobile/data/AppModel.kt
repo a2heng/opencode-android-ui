@@ -1517,8 +1517,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     // =========================================================================
 
     fun overrideFsRoot(path: String?) {
-        fsRootOverride = path?.trimEnd('/')?.takeIf { it.isNotBlank() }
-        fsRoot = fsBase()
+        val next = path?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        if (next != fsRootOverride) {
+            fsRootOverride = next
+            fsRoot = fsBase()
+            // La raiz cambio (p. ej. una version anterior usaba rootfs):
+            // invalida el listado para que FilesScreen vuelva a cargar.
+            fsDir = ""
+            fsEntries = emptyList()
+            fsError = null
+        }
     }
 
     /**

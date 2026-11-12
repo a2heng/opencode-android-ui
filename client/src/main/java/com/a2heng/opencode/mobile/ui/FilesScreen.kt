@@ -64,16 +64,12 @@ fun FilesScreen(model: AppModel, wide: Boolean = false) {
         if (model.fsDir.isBlank()) model.loadDir(null)
     }
 
-    val rootBase = model.fsRootOverride ?: "/"
-    BackHandler(enabled = model.openFile != null || model.fsDir.trimEnd('/') != rootBase) {
+    val rootBase = model.fsBase()
+    BackHandler(enabled = model.openFile != null || parentDir(model.fsDir, rootBase) != null) {
         if (model.openFile != null) {
             model.closeFile()
         } else {
-            val current = model.fsDir.trimEnd('/')
-            if (current != rootBase) {
-                val parent = current.substringBeforeLast('/')
-                model.loadDir(if (parent.length < rootBase.length) rootBase else parent)
-            }
+            parentDir(model.fsDir, rootBase)?.let { model.loadDir(it) }
         }
     }
 
@@ -114,21 +110,21 @@ fun FilesScreen(model: AppModel, wide: Boolean = false) {
 
 @Composable
 private fun FsListPane(model: AppModel) {
-    val rootBase = model.fsRootOverride ?: "/"
+    val rootBase = model.fsBase()
     var creatingFolder by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize()) {
-        // 预设文件夹胶囊：~、/tmp/opencode、当前会话目录、最近项目（自动换行，最多约 5 行后滚动）
-        val presets = remember(model.homeDir, model.current?.id, model.sessions, model.fsDir) {
+        // 预设文件夹胶囊：~、/、/tmp/opencode、当前会话目录、最近项目（自动换行，最多约 5 行后滚动）
+        val presets = remember(model.homeDir, model.current?.id, model.sessions, model.fsDir, model.fsRootOverride) {
             buildList {
                 if (model.homeDir.isNotBlank()) add("~" to model.homeDir)
-                add("/" to (model.fsRootOverride ?: "/"))
+                add("/" to model.fsBase())
                 add("/tmp/opencode" to "/tmp/opencode")
-                model.current?.directory?.takeIf { it.isNotBlank() }?.let { add("当前会话" to it) }
+                model.expandSessionDir(model.current?.directory)?.let { add("当前会话" to it) }
                 model.sessions.forEach { s ->
-                    val dir = s.directory
-                    if (dir.isNotBlank() && none { it.second == dir }) {
+                    val dir = model.expandSessionDir(s.directory) ?: return@forEach
+                    if (none { it.second == dir }) {
                         add(dir.trimEnd('/').substringAfterLast('/').ifBlank { dir } to dir)
                     }
                 }
@@ -180,19 +176,13 @@ private fun FsListPane(model: AppModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(
-                onClick = {
-                    val current = model.fsDir.trimEnd('/')
-                    if (current != rootBase) {
-                        val parent = current.substringBeforeLast('/')
-                        model.loadDir(if (parent.length < rootBase.length) rootBase else parent)
-                    }
-                },
-                enabled = model.fsDir.trimEnd('/') != rootBase,
+                onClick = { parentDir(model.fsDir, rootBase)?.let { model.loadDir(it) } },
+                enabled = parentDir(model.fsDir, rootBase) != null,
             ) {
                 Icon(Icons.Rounded.ArrowUpward, contentDescription = "上级目录")
             }
             Text(
-                model.fsDir.replace(model.fsRoot, "").ifBlank { "/" },
+                pathLabel(rootBase, model.fsDir),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -226,7 +216,7 @@ private fun FsListPane(model: AppModel) {
             LazyColumn(Modifier.fillMaxSize()) {
                 items(model.fsEntries, key = { it.path }) { entry ->
                     FsRow(entry) {
-                        val full = fullPath(model.fsRoot, entry.path)
+                        val full = fullPath(model.fsDir.ifBlank { rootBase }, entry.path)
                         if (entry.isDir) model.loadDir(full) else model.openFile(full)
                     }
                 }
@@ -242,7 +232,7 @@ private fun FsListPane(model: AppModel) {
             text = {
                 Column {
                     Text(
-                        model.fsDir.replace(model.fsRoot, "").ifBlank { "/" },
+                        pathLabel(rootBase, model.fsDir),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -285,6 +275,35 @@ private fun FsListPane(model: AppModel) {
 
 private fun fullPath(root: String, relative: String): String =
     root.trimEnd('/') + "/" + relative.trimStart('/')
+
+private fun isUnder(base: String, path: String): Boolean {
+    val b = base.trimEnd('/')
+    val p = path.trimEnd('/')
+    if (b.isEmpty()) return true
+    return p == b || p.startsWith("$b/")
+}
+
+/** Directorio padre, sin salir de la raiz del explorador. */
+private fun parentDir(current: String, base: String): String? {
+    val b = base.trimEnd('/')
+    val cur = current.trimEnd('/')
+    if (cur.isEmpty() || cur == b) return null
+    if (b.isNotEmpty() && !isUnder(b, cur)) return null
+    val parent = cur.substringBeforeLast('/').ifEmpty { "/" }
+    return if (b.isNotEmpty() && b != "/" && !isUnder(b, parent)) b else parent
+}
+
+/** Ruta visible: relativa a la raiz; la propia raiz se muestra como "/". */
+private fun pathLabel(base: String, dir: String): String {
+    val b = base.trimEnd('/')
+    val d = dir.trimEnd('/')
+    return when {
+        d.isBlank() -> "/"
+        b.isNotEmpty() && d == b -> "/"
+        b.isNotEmpty() && b != "/" && d.startsWith("$b/") -> d.removePrefix(b)
+        else -> d
+    }
+}
 
 @Composable
 private fun FsRow(entry: FsEntry, onClick: () -> Unit) {

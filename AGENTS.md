@@ -278,12 +278,20 @@ app/src/main/java/com/a2heng/opencode/mobile/
   - 回车：点=CR，长按=LF（震动）；Ctrl/Shift/Alt 影响方向键（xterm modifier）和 Shift+Tab。
 - 字体：打包 `assets/fonts/SarasaFixedSC-Regular.ttf`（OFL，GB2312 子集，2.1MB，拉丁 0.5em/中文 1em）；加载失败回退 `DroidSansMono.ttf`。
 - 字号 5–26sp，存 SharedPreferences（`pty_font_size`）；换字号用 `key(fontSize)` 重建视图（emulator 屏幕缓冲不丢）。
+- **本机 Termux 终端（Adia）**：宿主通过 `LocalShellHost.spawner` 注入 `LocalRuntime.localShell()`，用 proot + `prefix/bin/script` 开真 PTY。
+  - `PtyList(onOpenLocal = ...)` 的 lambda **不要写成 `({ { ... } })`**：那会变成「返回 lambda 的 lambda」，点「打开」什么也不发生（编译只给 `Lambda expression is never invoked` 警告）。用显式的 `val openLocal: (() -> Unit)? = if (...) { { ... } } else null`。
+  - spawn 在 `Dispatchers.IO` 做（proot/toolbox 检查很慢）；`script` 不存在时先从 APK 里的 `util-linux.deb` + 依赖补装，仍失败就退回 `bash -i -l`。
+  - `script` 若在 350ms 内退出（缺库/没有 `/dev/ptmx`），宿主自动改开无 PTY 的 bash，避免终端一片黑。
+- **服务端 PTY**（独立 APK 连电脑）仍按上面的 `/api/pty` 流程；Android 上 bun-pty 起不来时用本机终端。
 
 ### 4.12 文件
 
-- 预设目录用**胶囊**（无图标、自动换行、最多约 5 行后滚动）：`~`、`/tmp/opencode`、当前会话目录、最近项目。
+- 预设目录用**胶囊**（无图标、自动换行、最多约 5 行后滚动）：`~`、`/`、`/tmp/opencode`、当前会话目录、最近项目。
+- **`~` = 服务端 HOME**（`GET /api/location` 的 directory），**`/` = 真实文件系统根**。不要再造 rootfs/symlink 虚拟根：opencode v2 的 `readDirectoryEntries` 把 symlink 归为 `SymbolicLink`，服务端会直接过滤掉，虚拟根永远是空的。
+- 目录显示用 `pathLabel(base, fsDir)`：`fsDir` 是当前目录，`base` 是宿主的 `fsRootOverride`（没有就是 `/`）；**不要**用服务端每次返回的 `location` 当根，否则路径永远显示 `/`、上一级立刻失效。
+- 列目录返回的 `entry.path` 相对**当前目录**，拼绝对路径要用 `fsDir`（不是固定根）。
 - 目录行右侧固定两个图标按钮：**上一级**（`ArrowUpward`，到根目录时禁用）和**新建文件夹**（`CreateNewFolder`，弹名字对话框，走服务端 shell `mkdir -p`，建完自动刷新）。
-- 新建会话对话框也保留同样的「上一级 + 新建文件夹」，两处行为要一致。
-- `/api/fs/list`、`/api/fs/read` 都是 **location 作用域**：列目录用 `location[directory]=<绝对目录>`，读文件用 `location[directory]=<父目录>` + 文件名（不要用 `..`，会被 URL 规范化掉）。
+- 新建会话对话框：根固定为 HOME；`~` = HOME，`/` = `HOME/workspace`（真 Android 根不能当项目，会卡住选择器）。上一级不能越过根；服务端返回的 location 不覆盖根。`browseDirs` 会展开 `~` 和 `/`，创建会话前也走同一套 `expandSessionDir`。
+- `/api/fs/list`、`/api/fs/read` 都是 **location 作用域**：列目录用 `location[directory]=<绝对目录>`，读文件用 `location[directory]=<父目录>` + 文件名（不要用 `..`，会被 URL 规范化掉）。`list` 允许列 location 之外的绝对目录，`read` 仍用「父目录当 location」来绕开限制。
 - 文本解码：严格 UTF-8 → GB18030 回退；前 8KB 有 NUL 当二进制；图片走 BitmapFactory；`.md` 用 MarkdownText。
 - 对话正文里的绝对路径可点开文件预览卡（`DetailOverlay` + `FilePreviewCard`）。

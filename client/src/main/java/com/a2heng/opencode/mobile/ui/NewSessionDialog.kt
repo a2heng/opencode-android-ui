@@ -19,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,8 +45,16 @@ import com.a2heng.opencode.mobile.data.FsEntry
 /**
  * 新建会话时选择（或新建）一个文件夹。
  *
- * 目录来自 /api/fs/list：返回的 entry.path 是相对 location 根目录的，
- * 所以拼绝对路径时要用 root + entry.path。
+ * 目录来自 /api/fs/list：entry.path 是相对**当前 location** 的，所以拼绝对
+ * 路径时要用当前 path（不是固定的根）。
+ *
+ * `~` 和 `/` 指向我们自己的规范位置：
+ * - `~`  = 服务端 HOME（GET /api/location）；
+ * - `/`  = HOME/workspace（项目区）。真正的 Android 根目录既不能当项目，
+ *   还会让整个选择器卡住，所以不在这里暴露。
+ *
+ * 根节点固定为 HOME，不随服务端返回的 location 变化；这样「上一级」不会
+ * 点一下就被重置。
  */
 @Composable
 fun NewSessionDialog(
@@ -55,11 +62,11 @@ fun NewSessionDialog(
     onDismiss: () -> Unit,
     onCreate: (String?) -> Unit,
 ) {
-    val initial = model.current?.directory?.takeIf { it.isNotBlank() }
-        ?: model.sessions.firstOrNull()?.directory
-        ?: ""
+    val home = model.homeDir.trimEnd('/')
+    val initial = model.expandSessionDir(model.current?.directory)
+        ?: model.expandSessionDir(model.sessions.firstOrNull()?.directory)
+        ?: home
     var path by remember { mutableStateOf(initial) }
-    var root by remember { mutableStateOf("") }
     var dirs by remember { mutableStateOf<List<FsEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -69,19 +76,32 @@ fun NewSessionDialog(
     var folderName by remember { mutableStateOf("") }
 
     LaunchedEffect(path, reload) {
+        val requested = path
         loading = true
         error = null
         try {
-            val (r, list) = model.browseDirs(path.ifBlank { null })
-            root = r
-            if (path.isBlank()) path = r
+            val (location, list) = model.browseDirs(requested.ifBlank { null })
+            // 快速点按/切目录时，旧请求可能晚到：只认最后一次。
+            if (path != requested) return@LaunchedEffect
+            if (path.isBlank()) path = home.ifBlank { location }
             dirs = list.filter { it.isDir && !it.name.startsWith(".") }
                 .sortedBy { it.name.lowercase() }
         } catch (e: Exception) {
-            error = e.message
+            if (path == requested) error = e.message
         } finally {
-            loading = false
+            if (path == requested) loading = false
         }
+    }
+
+    // 根不随服务端返回的 location 变化。HOME 之外的最近目录临时把上界
+    // 放到真根，否则选了 /storage/... 后「上一级」就永远灰掉。
+    val baseRoot = if (home.isNotBlank() && (path.isBlank() || isUnder(home, path))) home else "/"
+    val upTarget = sessionParentDir(path, baseRoot)
+    val recents = remember(model.sessions, home) {
+        model.sessions.mapNotNull { model.expandSessionDir(it.directory) }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(6)
     }
 
     AppDialog(
@@ -91,20 +111,13 @@ fun NewSessionDialog(
             Column(Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = {
-                            val r = root.trimEnd('/')
-                            val cur = path.trimEnd('/')
-                            val parent = cur.substringBeforeLast('/')
-                            if (cur.isNotEmpty() && cur != r && parent.length >= r.length) {
-                                path = parent.ifBlank { r }
-                            }
-                        },
-                        enabled = path.trimEnd('/').isNotEmpty() && path.trimEnd('/') != root.trimEnd('/'),
+                        onClick = { upTarget?.let { path = it } },
+                        enabled = upTarget != null,
                     ) {
                         Icon(Icons.Rounded.ArrowUpward, contentDescription = "上一级", modifier = Modifier.size(20.dp))
                     }
                     Text(
-                        path,
+                        sessionPathLabel(path, home),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -113,18 +126,29 @@ fun NewSessionDialog(
                     )
                 }
                 HorizontalDivider()
-                val recents = remember(model.sessions) {
-                    model.sessions.map { it.directory }
-                        .filter { it.isNotBlank() }
-                        .distinct()
-                        .take(6)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    sessionChip(
+                        label = "~",
+                        selected = path.trimEnd('/') == home,
+                    ) { if (home.isNotBlank()) path = home }
+                    val workspace = model.sessionRoot()
+                    sessionChip(
+                        label = "/",
+                        selected = workspace.isNotBlank() && path.trimEnd('/') == workspace,
+                    ) { path = workspace.ifBlank { home } }
                 }
                 if (recents.isNotEmpty()) {
                     Text(
                         "最近使用",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                     Row(
                         Modifier
@@ -134,22 +158,10 @@ fun NewSessionDialog(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         recents.forEach { dir ->
-                            Surface(
-                                color = if (path.trimEnd('/') == dir.trimEnd('/')) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.clickableNoRipple { path = dir },
-                            ) {
-                                Text(
-                                    shortDir(dir, model.homeDir),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    maxLines = 1,
-                                )
-                            }
+                            sessionChip(
+                                label = shortDir(dir, model.homeDir),
+                                selected = path.trimEnd('/') == dir.trimEnd('/'),
+                            ) { path = dir }
                         }
                     }
                 }
@@ -172,7 +184,7 @@ fun NewSessionDialog(
                                     Modifier
                                         .fillMaxWidth()
                                         .clickableNoRipple {
-                                            path = fullPath(root, entry.path)
+                                            path = fullPath(path.ifBlank { baseRoot }, entry.path)
                                         }
                                         .padding(vertical = 9.dp, horizontal = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -215,7 +227,7 @@ fun NewSessionDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onCreate(path.ifBlank { null }) }) {
+            TextButton(onClick = { onCreate(model.expandSessionDir(path)) }) {
                 Text("在这里创建")
             }
         },
@@ -231,7 +243,7 @@ fun NewSessionDialog(
             text = {
                 Column {
                     Text(
-                        "在 $path 下创建",
+                        "在 ${sessionPathLabel(path, home)} 下创建",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -253,8 +265,9 @@ fun NewSessionDialog(
                         creatingFolder = false
                         folderName = ""
                         if (name.isNotEmpty()) {
-                            model.createFolder(path, name) {
-                                path = path.trimEnd('/') + "/" + name
+                            val parent = path.ifBlank { baseRoot }
+                            model.createFolder(parent, name) {
+                                path = fullPath(parent, name)
                                 reload++
                             }
                         }
@@ -271,14 +284,62 @@ fun NewSessionDialog(
     }
 }
 
+@Composable
+private fun sessionChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.clickableNoRipple(onClick),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+    }
+}
+
 private fun fullPath(root: String, relative: String): String =
     root.trimEnd('/') + "/" + relative.trimStart('/')
+
+private fun isUnder(base: String, path: String): Boolean {
+    val b = base.trimEnd('/')
+    val p = path.trimEnd('/')
+    if (b.isEmpty()) return true
+    return p == b || p.startsWith("$b/")
+}
+
+/** 上一级，不越过选择器固定的根。 */
+private fun sessionParentDir(current: String, base: String): String? {
+    val b = base.trimEnd('/')
+    val cur = current.trimEnd('/')
+    if (cur.isEmpty() || cur == b) return null
+    if (b.isNotEmpty() && !isUnder(b, cur)) return null
+    val parent = cur.substringBeforeLast('/').ifEmpty { "/" }
+    return if (b.isNotEmpty() && b != "/" && !isUnder(b, parent)) b else parent
+}
+
+private fun sessionPathLabel(path: String, home: String): String {
+    val h = home.trimEnd('/')
+    val p = path.trimEnd('/')
+    return when {
+        p.isBlank() -> if (h.isNotBlank()) "~" else "/"
+        h.isNotBlank() && p == h -> "~"
+        h.isNotBlank() && p.startsWith("$h/") -> "~/" + p.removePrefix("$h/")
+        else -> p
+    }
+}
 
 private fun shortDir(dir: String, home: String): String {
     val h = home.trimEnd('/')
     return when {
         h.isNotEmpty() && dir.trimEnd('/') == h -> "~"
         h.isNotEmpty() && dir.startsWith("$h/") -> dir.removePrefix("$h/").trimEnd('/')
-        else -> dir.trimEnd('/')
+        else -> dir.trimEnd('/').ifBlank { "/" }
     }
 }

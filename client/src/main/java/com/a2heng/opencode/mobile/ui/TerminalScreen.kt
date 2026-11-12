@@ -85,7 +85,14 @@ fun TerminalScreen(model: AppModel) {
         BackHandler { localOpen = false }
         LocalTerminalView(model) { localOpen = false }
     } else {
-        PtyList(model, onOpenLocal = if (LocalShellHost.available) ({ { localOpen = true } }) else null)
+        // Ojo: antes había un lambda dentro de otro lambda y el toque no hacía
+        // nada (el warning "Lambda expression is never invoked").
+        val openLocal: (() -> Unit)? = if (LocalShellHost.available) {
+            { localOpen = true }
+        } else {
+            null
+        }
+        PtyList(model, onOpenLocal = openLocal)
     }
 }
 

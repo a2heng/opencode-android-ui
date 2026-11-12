@@ -315,7 +315,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- 文件 ---------------------------------------------------------------
-    /** 宿主指定的“/”（Adia 的 rootfs/前缀根）；null = 用设备根。 */
+    /** 宿主指定的“/”；null = 真机根目录（Adia 现在用真实文件系统）。 */
     var fsRootOverride by mutableStateOf<String?>(null)
         private set
     var fsDir by mutableStateOf("")
@@ -328,6 +328,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var fsError by mutableStateOf<String?>(null)
         private set
+    /** Última petición de listado; las respuestas viejas se descartan. */
+    private var fsLoadSeq = 0
     var openFile by mutableStateOf<String?>(null)
         private set
     var openFileText by mutableStateOf("")
@@ -1049,9 +1051,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         viewModelScope.launch {
             try {
-                val dir = directory?.takeIf { it.isNotBlank() }
-                    ?: current?.directory?.takeIf { it.isNotBlank() }
-                    ?: sessions.firstOrNull()?.directory
+                val dir = expandSessionDir(directory)
+                    ?: expandSessionDir(current?.directory)
+                    ?: expandSessionDir(sessions.firstOrNull()?.directory)
                 var s = withContext(Dispatchers.IO) { c.createSession(dir) }
                 // 默认模型必须落到服务端会话上：只改本地 copy 的话，
                 // 别的客户端或重连后会退回服务端默认模型。
@@ -1084,17 +1086,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** 新建会话对话框里浏览目录用，不影响「文件」页签的状态。 */
     suspend fun browseDirs(path: String?): Pair<String, List<FsEntry>> {
         val c = client ?: return "" to emptyList()
-        return withContext(Dispatchers.IO) { c.listDir(path) }
+        return withContext(Dispatchers.IO) { c.listDir(expandSessionDir(path) ?: "") }
     }
 
     /** 在指定目录下新建文件夹（走服务端的 shell，随后让对话框自己刷新）。 */
     fun createFolder(parent: String, name: String, onDone: () -> Unit) {
         val c = client ?: return
-        val target = parent.trimEnd('/') + "/" + name.trim().trim('/')
+        val base = expandUserPath(parent) ?: parent
+        val target = base.trimEnd('/') + "/" + name.trim().trim('/')
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    c.runShell("mkdir -p -- " + shellQuote(target), parent)
+                    c.runShell("mkdir -p -- " + shellQuote(target), base)
                 }
                 delay(400)
                 onDone()
@@ -1515,24 +1518,78 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun overrideFsRoot(path: String?) {
         fsRootOverride = path?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        fsRoot = fsBase()
     }
+
+    /**
+     * HOME del servidor opencode (el "~" real), sin barra final.
+     * Sale de GET /api/location al conectar.
+     */
+    fun homePath(): String = homeDir.trimEnd('/')
+
+    /** Raiz canonica de proyectos dentro del HOME: "<home>/workspace". */
+    fun sessionRoot(): String {
+        val h = homePath()
+        return if (h.isNotBlank()) "$h/workspace" else ""
+    }
+
+    /**
+     * Expande las dos rutas especiales del selector de sesiones:
+     * - "~" / "~/..." -> HOME del servidor;
+     * - "/" -> HOME/workspace (un proyecto en la raiz Android es lo que hacia
+     *   que el selector quedara inservible).
+     */
+    fun expandSessionDir(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isBlank()) return null
+        val home = homePath()
+        if (home.isBlank()) return s
+        return when {
+            s == "~" || s == "~/" -> home
+            s.startsWith("~/") -> home + s.drop(1)
+            s == "/" -> sessionRoot().ifBlank { home }
+            else -> s
+        }
+    }
+
+    /** Solo expande "~"; deja "/" y las rutas absolutas tal cual. */
+    fun expandUserPath(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isBlank()) return null
+        val home = homePath()
+        if (home.isBlank()) return s
+        return when {
+            s == "~" || s == "~/" -> home
+            s.startsWith("~/") -> home + s.drop(1)
+            else -> s
+        }
+    }
+
+    /** "/" del explorador de archivos: override del host o la raiz real. */
+    fun fsBase(): String =
+        fsRootOverride?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: "/"
+
+    /** "~" del explorador: HOME real del servidor. */
+    fun fsHome(): String = homePath()
 
     fun loadDir(path: String?) {
         val c = client ?: return
-        if (fsLoading) return
-        val target = path ?: fsRootOverride
+        val requested = expandUserPath(path)
+        val target = requested ?: fsRootOverride
+        val seq = ++fsLoadSeq
         fsLoading = true
         fsError = null
         viewModelScope.launch {
             try {
                 val (dir, entries) = withContext(Dispatchers.IO) { c.listDir(target) }
-                fsRoot = dir
-                fsDir = if (target.isNullOrBlank()) dir else target.trimEnd('/')
+                if (seq != fsLoadSeq) return@launch
+                fsRoot = fsBase()
+                fsDir = dir.ifBlank { target.orEmpty() }.trimEnd('/').ifBlank { "/" }
                 fsEntries = entries.sortedWith(compareByDescending<FsEntry> { it.isDir }.thenBy { it.name.lowercase() })
             } catch (e: Exception) {
-                fsError = e.message
+                if (seq == fsLoadSeq) fsError = e.message
             } finally {
-                fsLoading = false
+                if (seq == fsLoadSeq) fsLoading = false
             }
         }
     }
@@ -1663,7 +1720,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         viewModelScope.launch {
             try {
-                val cwd = current?.directory?.takeIf { it.isNotBlank() }
+                val cwd = expandSessionDir(current?.directory)
                 val p = withContext(Dispatchers.IO) { c.ptyCreate("bash", cwd) }
                 if (p != null) {
                     loadPtys()

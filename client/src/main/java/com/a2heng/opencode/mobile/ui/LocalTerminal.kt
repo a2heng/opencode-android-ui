@@ -48,35 +48,43 @@ fun LocalTerminalView(model: AppModel, onBack: () -> Unit) {
     val focus = remember { FocusRequester() }
     var emulator by remember { mutableStateOf<TerminalEmulator?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    val process = remember { runCatching { LocalShellHost.spawner?.spawn() }.getOrNull() }
+    // El arranque hace IO (proot, comprobación de script, toolbox): nunca en
+    // el hilo principal, o el primer toque puede quedarse en ANR.
+    var process by remember { mutableStateOf<Process?>(null) }
+    var starting by remember { mutableStateOf(true) }
 
-    DisposableEffect(process) {
-        if (process == null) {
-            error = "无法启动本机 shell（toolbox 可能还在安装）"
-        } else {
-            emulator = TerminalEmulatorFactory.create(
-                looper = Looper.getMainLooper(),
-                initialRows = 40,
-                initialCols = 100,
-                defaultForeground = Color(0xFFE6EDF3),
-                defaultBackground = Color(0xFF0E1116),
-                onKeyboardInput = { bytes ->
-                    runCatching {
-                        process.outputStream.write(bytes)
-                        process.outputStream.flush()
-                    }
-                },
-                onResize = { },
-            )
+    LaunchedEffect(Unit) {
+        val p = withContext(Dispatchers.IO) {
+            runCatching { LocalShellHost.spawner?.spawn() }.getOrNull()
         }
+        process = p
+        starting = false
+        if (p == null) error = "无法启动本机 shell（toolbox 可能还在安装）"
+    }
+
+    DisposableEffect(Unit) {
         onDispose {
             runCatching { process?.destroy() }
         }
     }
 
-    LaunchedEffect(emulator) {
-        val emu = emulator ?: return@LaunchedEffect
+    LaunchedEffect(process) {
         val p = process ?: return@LaunchedEffect
+        val emu = TerminalEmulatorFactory.create(
+            looper = Looper.getMainLooper(),
+            initialRows = 40,
+            initialCols = 100,
+            defaultForeground = Color(0xFFE6EDF3),
+            defaultBackground = Color(0xFF0E1116),
+            onKeyboardInput = { bytes ->
+                runCatching {
+                    process?.outputStream?.write(bytes)
+                    process?.outputStream?.flush()
+                }
+            },
+            onResize = { },
+        )
+        emulator = emu
         withContext(Dispatchers.IO) {
             val buf = ByteArray(8192)
             try {
@@ -110,7 +118,7 @@ fun LocalTerminalView(model: AppModel, onBack: () -> Unit) {
                 )
             } else {
                 Text(
-                    error ?: "正在打开 Termux…",
+                    error ?: if (starting) "正在打开 Termux…" else "正在连接 shell…",
                     color = Color(0xFFC7CDD6),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.align(Alignment.Center),

@@ -41,7 +41,7 @@ fun OpenCodeMobileRoot(
     onSharedConsumed: () -> Unit = {},
 ) {
     val model: AppModel = viewModel()
-    if (fsRoot != null) model.overrideFsRoot(fsRoot)
+    model.overrideFsRoot(fsRoot)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { model.refreshOnResume() }
     OcTheme(themeMode = model.themeMode, appearance = model.appearance) {
         LaunchedEffect(shared) {
@@ -76,7 +76,7 @@ object OpenCodeMobileHost {
 
     /**
      * @param shell  本机 Termux shell（null = 终端页只用服务端 PTY）
-     * @param fsRoot 文件页的“/”（通常是 Adia 的 rootfs/前缀目录）
+     * @param fsRoot 文件页的“/”；null = 真机根目录（Adia 用真实文件系统）
      */
     @JvmStatic
     @JvmOverloads

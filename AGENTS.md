@@ -291,7 +291,7 @@ app/src/main/java/com/a2heng/opencode/mobile/
 - 目录显示用 `pathLabel(base, fsDir)`：`fsDir` 是当前目录，`base` 是宿主的 `fsRootOverride`（没有就是 `/`）；**不要**用服务端每次返回的 `location` 当根，否则路径永远显示 `/`、上一级立刻失效。
 - 列目录返回的 `entry.path` 相对**当前目录**，拼绝对路径要用 `fsDir`（不是固定根）。
 - 目录行右侧固定两个图标按钮：**上一级**（`ArrowUpward`，到根目录时禁用）和**新建文件夹**（`CreateNewFolder`，弹名字对话框，走服务端 shell `mkdir -p`，建完自动刷新）。
-- 新建会话对话框：根固定为 HOME；`~` = HOME，`/` = `HOME/workspace`（真 Android 根不能当项目，会卡住选择器）。上一级不能越过根；服务端返回的 location 不覆盖根。`browseDirs` 会展开 `~` 和 `/`，创建会话前也走同一套 `expandSessionDir`。
+- 新建会话对话框：上一级的根固定为真实 `/`（不随服务端返回的 location 变化），`~` = HOME，`/` 胶囊 = `HOME/workspace`（真 Android 根不能当项目，会卡住选择器）。`~` 里的最近目录仍可正常列出；确认时 `expandSessionDir` 会把 `/` 兜底成 workspace。`browseDirs` 只展开 `~`，不再劫持 `/`。
 - `/api/fs/list`、`/api/fs/read` 都是 **location 作用域**：列目录用 `location[directory]=<绝对目录>`，读文件用 `location[directory]=<父目录>` + 文件名（不要用 `..`，会被 URL 规范化掉）。`list` 允许列 location 之外的绝对目录，`read` 仍用「父目录当 location」来绕开限制。
 - 文本解码：严格 UTF-8 → GB18030 回退；前 8KB 有 NUL 当二进制；图片走 BitmapFactory；`.md` 用 MarkdownText。
 - 对话正文里的绝对路径可点开文件预览卡（`DetailOverlay` + `FilePreviewCard`）。

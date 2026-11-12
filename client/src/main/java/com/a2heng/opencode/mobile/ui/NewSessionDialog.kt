@@ -53,8 +53,8 @@ import com.a2heng.opencode.mobile.data.FsEntry
  * - `/`  = HOME/workspace（项目区）。真正的 Android 根目录既不能当项目，
  *   还会让整个选择器卡住，所以不在这里暴露。
  *
- * 根节点固定为 HOME，不随服务端返回的 location 变化；这样「上一级」不会
- * 点一下就被重置。
+ * 根节点固定为真实 `/`，不随服务端返回的 location 变化；`~` 和 `/` 胶囊
+ * 负责跳到规范位置，「上一级」不会被重置。
  */
 @Composable
 fun NewSessionDialog(
@@ -93,9 +93,9 @@ fun NewSessionDialog(
         }
     }
 
-    // 根不随服务端返回的 location 变化。HOME 之外的最近目录临时把上界
-    // 放到真根，否则选了 /storage/... 后「上一级」就永远灰掉。
-    val baseRoot = if (home.isNotBlank() && (path.isBlank() || isUnder(home, path))) home else "/"
+    // 根固定为真根：只靠服务端返回的 location 当根会让「上一级」点一下就被
+    // 重置。`~` / `/` 胶囊负责跳到规范位置，向上仍可自由走到任意祖先。
+    val baseRoot = "/"
     val upTarget = sessionParentDir(path, baseRoot)
     val recents = remember(model.sessions, home) {
         model.sessions.mapNotNull { model.expandSessionDir(it.directory) }

@@ -1086,7 +1086,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** 新建会话对话框里浏览目录用，不影响「文件」页签的状态。 */
     suspend fun browseDirs(path: String?): Pair<String, List<FsEntry>> {
         val c = client ?: return "" to emptyList()
-        return withContext(Dispatchers.IO) { c.listDir(expandSessionDir(path) ?: "") }
+        return withContext(Dispatchers.IO) { c.listDir(expandUserPath(path) ?: "") }
     }
 
     /** 在指定目录下新建文件夹（走服务端的 shell，随后让对话框自己刷新）。 */

@@ -318,12 +318,20 @@ private fun isUnder(base: String, path: String): Boolean {
 }
 
 /** 上一级，不越过选择器固定的根。 */
+private fun sessionIsRootPath(p: String): Boolean =
+    p.isEmpty() || p == "/" || Regex("^[A-Za-z]:$").matches(p)
+
 private fun sessionParentDir(current: String, base: String): String? {
     val b = base.trimEnd('/')
     val cur = current.trimEnd('/')
-    if (cur.isEmpty() || cur == b) return null
+    if (sessionIsRootPath(cur) || cur == b) return null
     if (b.isNotEmpty() && !isUnder(b, cur)) return null
-    val parent = cur.substringBeforeLast('/').ifEmpty { "/" }
+    val rawParent = cur.substringBeforeLast('/', "")
+    val parent = when {
+        rawParent.isEmpty() -> "/"
+        Regex("^[A-Za-z]:$").matches(rawParent) -> "$rawParent/"
+        else -> rawParent
+    }
     return if (b.isNotEmpty() && b != "/" && !isUnder(b, parent)) b else parent
 }
 

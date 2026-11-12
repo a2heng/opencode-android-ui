@@ -131,7 +131,7 @@ class OcClient(rawBase: String, private val password: String) {
 
     /** 服务端的根目录（/api/location 的 directory），用来显示 ~ 相对路径。 */
     suspend fun locationRoot(): String =
-        (get("/api/location") as? JsonObject)?.str("directory") ?: ""
+        normPath((get("/api/location") as? JsonObject)?.str("directory") ?: "")
 
     /** 真正在跑的会话：/api/session/active 返回 { data: { ses_x: {type:"running"} } } */
     suspend fun activeSessionIds(): Set<String> {
@@ -439,10 +439,10 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun listDir(dir: String?): Pair<String, List<FsEntry>> {
         val q = if (dir.isNullOrBlank()) "" else "?location%5Bdirectory%5D=" + urlEncode(dir)
         val o = get("/api/fs/list$q") as? JsonObject ?: JsonObject(emptyMap())
-        val location = o.obj("location")?.str("directory") ?: dir.orEmpty()
+        val location = normPath(o.obj("location")?.str("directory") ?: dir.orEmpty())
         val entries = o.arr("data").mapNotNull { e ->
             val ob = e as? JsonObject ?: return@mapNotNull null
-            FsEntry(ob.str("path") ?: return@mapNotNull null, ob.str("type") ?: "file")
+            FsEntry(normPath(ob.str("path") ?: return@mapNotNull null), ob.str("type") ?: "file")
         }
         return location to entries
     }

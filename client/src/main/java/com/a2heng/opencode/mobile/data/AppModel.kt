@@ -1529,7 +1529,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     // =========================================================================
 
     fun overrideFsRoot(path: String?) {
-        val next = path?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val next = normPath(path.orEmpty()).trimEnd('/').takeIf { it.isNotBlank() }
         if (next != fsRootOverride) {
             fsRootOverride = next
             fsRoot = fsBase()
@@ -1563,13 +1563,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val s = raw?.trim().orEmpty()
         if (s.isBlank()) return null
         val home = homePath()
-        if (home.isBlank()) return s
-        return when {
-            s == "~" || s == "~/" -> home
-            s.startsWith("~/") -> home + s.drop(1)
-            s == "/" -> sessionRoot().ifBlank { home }
-            else -> s
-        }
+        if (home.isBlank()) return normPath(s)
+        return normPath(
+            when {
+                s == "~" || s == "~/" -> home
+                s.startsWith("~/") -> home + s.drop(1)
+                s == "/" -> sessionRoot().ifBlank { home }
+                else -> s
+            },
+        )
     }
 
     /** Solo expande "~"; deja "/" y las rutas absolutas tal cual. */
@@ -1577,12 +1579,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val s = raw?.trim().orEmpty()
         if (s.isBlank()) return null
         val home = homePath()
-        if (home.isBlank()) return s
-        return when {
-            s == "~" || s == "~/" -> home
-            s.startsWith("~/") -> home + s.drop(1)
-            else -> s
-        }
+        if (home.isBlank()) return normPath(s)
+        return normPath(
+            when {
+                s == "~" || s == "~/" -> home
+                s.startsWith("~/") -> home + s.drop(1)
+                else -> s
+            },
+        )
     }
 
     /** "/" del explorador de archivos: override del host o la raiz real. */
@@ -1594,8 +1598,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun loadDir(path: String?) {
         val c = client ?: return
-        val requested = expandUserPath(path)
-        val target = requested ?: fsRootOverride
+        val requested = expandUserPath(path)?.let(::normPath)
+        val target = requested ?: fsRootOverride?.let(::normPath)
         val seq = ++fsLoadSeq
         fsLoading = true
         fsError = null
@@ -1604,7 +1608,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 val (dir, entries) = withContext(Dispatchers.IO) { c.listDir(target) }
                 if (seq != fsLoadSeq) return@launch
                 fsRoot = fsBase()
-                fsDir = dir.ifBlank { target.orEmpty() }.trimEnd('/').ifBlank { "/" }
+                fsDir = normPath(dir.ifBlank { target.orEmpty() }).trimEnd('/').ifBlank { "/" }
                 fsEntries = entries.sortedWith(compareByDescending<FsEntry> { it.isDir }.thenBy { it.name.lowercase() })
             } catch (e: Exception) {
                 if (seq == fsLoadSeq) {
@@ -1619,7 +1623,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun openFile(path: String) {
         val c = client ?: return
-        openFile = path
+        val filePath = normPath(path)
+        openFile = filePath
         openFileText = ""
         openFileImage = null
         openFileBinary = false
@@ -1631,10 +1636,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         openFileLoading = true
         viewModelScope.launch {
             try {
-                val file = withContext(Dispatchers.IO) { c.readFileRaw(path) }
+                val file = withContext(Dispatchers.IO) { c.readFileRaw(filePath) }
                 openFileMime = file.mime
                 openFileBytesSize = file.bytes.size.toLong()
-                val lower = path.substringAfterLast('.', "").lowercase()
+                val lower = filePath.substringAfterLast('.', "").lowercase()
                 val mediaKind = when {
                     file.mime.startsWith("video/") || lower in VIDEO_EXTS -> "video"
                     file.mime.startsWith("audio/") || lower in AUDIO_EXTS -> "audio"
@@ -1642,7 +1647,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 }
                 when {
                     mediaKind != null -> {
-                        val uri = withContext(Dispatchers.IO) { writeMediaCache(path, file.bytes, lower) }
+                        val uri = withContext(Dispatchers.IO) { writeMediaCache(filePath, file.bytes, lower) }
                         if (uri != null) {
                             openFileMediaKind = mediaKind
                             openFileMediaUri = uri

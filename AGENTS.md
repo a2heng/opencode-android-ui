@@ -291,6 +291,7 @@ app/src/main/java/com/a2heng/opencode/mobile/
 - 预设目录用**胶囊**（无图标、自动换行、最多约 5 行后滚动）：`~`、`/`、`/tmp/opencode`、当前会话目录、最近项目。
 - **`~` = 服务端 HOME**（`GET /api/location` 的 directory），**`/` = 真实文件系统根**。不要再造 rootfs/symlink 虚拟根：opencode v2 的 `readDirectoryEntries` 把 symlink 归为 `SymbolicLink`，服务端会直接过滤掉，虚拟根永远是空的。
 - 目录显示用 `pathLabel(base, fsDir)`：`fsDir` 是当前目录，`base` 是宿主的 `fsRootOverride`（没有就是 `/`）；**不要**用服务端每次返回的 `location` 当根，否则路径永远显示 `/`、上一级立刻失效。
+- **路径统一 `/`**：所有服务端路径（`location.directory`、`entry.path`、会话 `directory`、`homeDir`）都过 `Models.kt` 的 `normPath`；Windows 服务端给的是 `D:\a\b`，不转的话 `substringBeforeLast('/')` 切不开，「上一级」在文件页和新建会话弹窗里都会原地不动。`C:` → 上一级给 `C:/`，到 `C:/` 停。
 - 列目录返回的 `entry.path` 相对**当前目录**，拼绝对路径要用 `fsDir`（不是固定根）。
 - 目录行右侧固定两个图标按钮：**上一级**（`ArrowUpward`，到根目录时禁用）和**新建文件夹**（`CreateNewFolder`，弹名字对话框，走服务端 shell `mkdir -p`，建完自动刷新）。
 - 新建会话对话框：上一级的根固定为真实 `/`（不随服务端返回的 location 变化），`~` = HOME，`/` 胶囊 = `HOME/workspace`（真 Android 根不能当项目，会卡住选择器）。`~` 里的最近目录仍可正常列出；确认时 `expandSessionDir` 会把 `/` 兜底成 workspace。`browseDirs` 只展开 `~`，不再劫持 `/`。

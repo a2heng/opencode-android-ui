@@ -125,7 +125,7 @@ data class SessionInfo(
                 id = o.str("id") ?: "",
                 title = o.str("title") ?: "",
                 projectID = o.str("projectID") ?: "",
-                directory = o.obj("location")?.str("directory") ?: "",
+                directory = normPath(o.obj("location")?.str("directory") ?: ""),
                 agent = o.str("agent") ?: "",
                 model = ModelRef.from(o["model"]),
                 cost = o.dbl("cost"),
@@ -367,6 +367,19 @@ fun parseForm(o: JsonObject) = FormInfo(
         )
     },
 )
+
+/**
+ * 统一路径分隔符：Windows 服务端返回 `D:\a\b`，界面和比较逻辑都按 `/` 走。
+ * 不统一的话 `substringBeforeLast('/')` 找不到分隔符，「上一级」就原地踏步。
+ */
+fun normPath(raw: String): String {
+    if (raw.isEmpty()) return raw
+    if (!raw.contains('\\')) return raw
+    val unc = raw.startsWith("\\\\") || raw.startsWith("//")
+    var s = raw.replace('\\', '/')
+    while (s.contains("//")) s = s.replace("//", "/")
+    return if (unc) "/$s" else s
+}
 
 data class FsEntry(val path: String, val type: String) {
     val name: String get() = path.trimEnd('/').substringAfterLast('/').ifBlank { path }

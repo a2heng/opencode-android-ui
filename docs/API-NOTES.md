@@ -134,6 +134,8 @@ data: {"id":"evt_...","created":...,"type":"session.text.delta","data":{...}}
 - `read` 会 `realpath` 后检查是否在 location 内；用「文件父目录」当 location 才能读项目外的文件。根目录下的文件父目录是 `/`，不能退化成「不带 location」（否则会去读 HOME）。
 - `readDirectoryEntries` 的 `type` 描述条目本身：**symlink 是 `SymbolicLink`，会被服务端过滤掉**。所以不要用「一堆 symlink 组成虚拟根」给文件页。
 - 创建会话的 `location.directory` 不要用 `/`：opencode 会把它当项目并可能递归 watch。规范项目根是 `<HOME>/workspace`。
+- **Windows 服务端**（`opencode serve` 跑在 Windows 上）返回的路径是反斜杠：`location.directory` = `D:\a\b`、`entry.path` = `sub\`。客户端必须统一成 `/`（`Models.kt` 的 `normPath`），否则 `substringBeforeLast('/')` 找不到分隔符，「上一级」会原地踏步、显示也会乱。
+- Windows 上 `normPath` 之后 `/` 是盘符根（`C:` 的根）；再上一级要把 `C:` 归一成 `C:/`，到 `C:/` 就停。
 
 `GET /api/location` → `{ directory, project }`，用作「~」显示的根。
 

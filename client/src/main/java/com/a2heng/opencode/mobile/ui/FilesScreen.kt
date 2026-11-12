@@ -284,12 +284,21 @@ private fun isUnder(base: String, path: String): Boolean {
 }
 
 /** Directorio padre, sin salir de la raiz del explorador. */
+private fun isRootPath(p: String): Boolean =
+    p.isEmpty() || p == "/" || Regex("^[A-Za-z]:$").matches(p)
+
 private fun parentDir(current: String, base: String): String? {
     val b = base.trimEnd('/')
     val cur = current.trimEnd('/')
-    if (cur.isEmpty() || cur == b) return null
+    // 已经是根（"/" 或 Windows 的 "C:/"）就没有上一级
+    if (isRootPath(cur) || cur == b) return null
     if (b.isNotEmpty() && !isUnder(b, cur)) return null
-    val parent = cur.substringBeforeLast('/').ifEmpty { "/" }
+    val rawParent = cur.substringBeforeLast('/', "")
+    val parent = when {
+        rawParent.isEmpty() -> "/"
+        Regex("^[A-Za-z]:$").matches(rawParent) -> "$rawParent/"
+        else -> rawParent
+    }
     return if (b.isNotEmpty() && b != "/" && !isUnder(b, parent)) b else parent
 }
 

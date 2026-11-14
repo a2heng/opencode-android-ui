@@ -795,6 +795,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * 确保前台保活服务在跑。连接可能发生在应用还没完全可见的时候，
+     * `startForegroundService` 被系统拒绝时异常会被吞掉；回到前台再补一次。
+     */
+    fun ensureKeepAlive() {
+        if (connected) ConnectionService.start(getApplication())
+    }
+
+    /**
      * 从后台 / 锁屏回到前台：SSE 可能已经断了一段时间，界面上的「正在思考 / 第 N 步」
      * 是旧事件攒出来的，会和服务端实际状态对不上。这里强制同步一次运行状态和最新消息。
      */
@@ -1216,7 +1224,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** 新建会话对话框里浏览目录用，不影响「文件」页签的状态。 */
     suspend fun browseDirs(path: String?): Pair<String, List<FsEntry>> {
         val c = client ?: return "" to emptyList()
-        return withContext(Dispatchers.IO) { c.listDir(expandUserPath(path) ?: "") }
+        return withContext(Dispatchers.IO) { c.listDir(absoluteFsPath(path) ?: "") }
     }
 
     /** 在指定目录下新建文件夹（走服务端的 shell，随后让对话框自己刷新）。 */
@@ -1707,6 +1715,24 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * 把任意路径变成服务端能直接用的绝对路径。
+     *
+     * 工具/正文里经常是 `src/main.kt` 这种**不以斜杠开头**的相对路径；
+     * 直接交给 `/api/fs/read` 会被服务端按它自己的工作目录解析，轻则 404，
+     * 重则打开错文件。这里统一补：当前会话目录 → HOME → 文件页根。
+     */
+    fun resolvePath(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isBlank()) return null
+        val expanded = expandUserPath(s) ?: return null
+        if (isAbsolutePath(expanded)) return expanded
+        val base = current?.directory?.takeIf { it.isNotBlank() }
+            ?: homeDir.takeIf { it.isNotBlank() }
+            ?: fsRootOverride
+        return if (base.isNullOrBlank()) expanded else joinPath(base, expanded)
+    }
+
     /** "/" del explorador de archivos: override del host o la raiz real. */
     fun fsBase(): String =
         fsRootOverride?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: "/"
@@ -1714,9 +1740,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** "~" del explorador: HOME real del servidor. */
     fun fsHome(): String = homePath()
 
+    private fun absoluteFsPath(raw: String?): String? {
+        val p = expandUserPath(raw)?.let(::normPath) ?: return null
+        return if (isAbsolutePath(p)) p else joinPath(fsBase(), p)
+    }
+
     fun loadDir(path: String?) {
         val c = client ?: return
-        val requested = expandUserPath(path)?.let(::normPath)
+        val requested = absoluteFsPath(path)
         val target = requested ?: fsRootOverride?.let(::normPath)
         val seq = ++fsLoadSeq
         fsLoading = true
@@ -1741,7 +1772,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun openFile(path: String) {
         val c = client ?: return
-        val filePath = normPath(path)
+        val filePath = resolvePath(path) ?: return
         openFile = filePath
         openFileText = ""
         openFileImage = null

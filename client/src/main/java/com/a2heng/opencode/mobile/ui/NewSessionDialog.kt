@@ -41,6 +41,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.FsEntry
+import com.a2heng.opencode.mobile.data.isAbsolutePath
+import com.a2heng.opencode.mobile.data.joinPath
+import com.a2heng.opencode.mobile.data.normPath
 
 /**
  * 新建会话时选择（或新建）一个文件夹。
@@ -307,12 +310,11 @@ private fun sessionChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-private fun fullPath(root: String, relative: String): String =
-    root.trimEnd('/') + "/" + relative.trimStart('/')
+private fun fullPath(root: String, relative: String): String = joinPath(root, relative)
 
 private fun isUnder(base: String, path: String): Boolean {
-    val b = base.trimEnd('/')
-    val p = path.trimEnd('/')
+    val b = normPath(base).trimEnd('/')
+    val p = normPath(path).trimEnd('/')
     if (b.isEmpty()) return true
     return p == b || p.startsWith("$b/")
 }
@@ -322,8 +324,13 @@ private fun sessionIsRootPath(p: String): Boolean =
     p.isEmpty() || p == "/" || Regex("^[A-Za-z]:$").matches(p)
 
 private fun sessionParentDir(current: String, base: String): String? {
-    val b = base.trimEnd('/')
-    val cur = current.trimEnd('/')
+    val b = normPath(base).trimEnd('/')
+    var cur = normPath(current).trimEnd('/')
+    // 不以 / 或盘符开头的相对路径先补到固定根，避免「上一级」只截掉一段。
+    if (cur.isNotEmpty() && !isAbsolutePath(cur)) {
+        cur = if (b.isNotEmpty()) joinPath(b, cur) else "/" + cur.trimStart('/')
+        cur = cur.trimEnd('/')
+    }
     if (sessionIsRootPath(cur) || cur == b) return null
     if (b.isNotEmpty() && !isUnder(b, cur)) return null
     val rawParent = cur.substringBeforeLast('/', "")

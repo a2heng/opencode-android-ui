@@ -70,7 +70,7 @@ object UpdateClient {
     /** local 0.1.3 / remote v0.1.4 → true */
     fun isNewer(local: String, remoteTag: String): Boolean {
         fun parse(v: String): List<Int>? =
-            v.removePrefix("v").split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 3 }
+            v.removePrefix("v").substringBefore('-').split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 3 }
         val a = parse(local) ?: return false
         val b = parse(remoteTag) ?: return false
         for (i in 0..2) {

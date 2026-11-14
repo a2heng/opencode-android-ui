@@ -77,6 +77,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   - `按文件夹 / 按时间` 是窄文本按钮（`SortLabel`，labelSmall + 2dp padding），不要用 `TextButton` 的大留白。
   - 不要底部 ExtendedFAB「新建会话」。
 - **行高要压缩**：外层上下 5dp、标题 `bodyMedium`、副标题 `labelSmall`，分组头（运行中/文件夹）上下 6/3dp；一屏要多显示几条。
+- 没有运行中会话时，顶部「最近」用 `rest.take(3)` 补位；**下面的时间视图必须 `items(groupedRest)`**（`recent` 已从 `rest` 取走前 3 条）。用 `rest` 会让同一会话出现两次（数量只算 1，列表却是两行）。
 
 ### 4.3 对话页 / 缓存页导航
 
@@ -157,6 +158,7 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
   - 地址栏右侧的小箭头下拉已保存列表；每一项显示 `host:port` + 是否带密码，右侧 × 删除。
   - 选中后同时回填地址和密码；手动输入到已保存的地址时也自动带出密码。
   - 密码用 Base64 存在同一个 SharedPreferences 里（和现有 `password` 一样是本地明文级别），不要上传。
+- 连接保活：连上后 `ConnectionService` 挂常驻通知保持 SSE；`OpenCodeRoot` 的 `ON_RESUME` 调 `ensureKeepAlive()` 补启动（宿主自动连接时可能在应用可见前被系统拒绝 FGS）。Android 13+ 宿主必须申请 `POST_NOTIFICATIONS`。
 - 登录页**连不上就停在登录页**：第一次连接失败不自动重连（`hadConnected=false`），只有已经连上过再掉线才退避重试。
   - 连接中按钮变成「取消连接」，改地址/密码或点取消都会 `cancelConnect()`，立刻停下。
   - 从后台回到前台时 `retryIfNeeded()` 也只在 `hadConnected` 时才补一次，登录页不会被反复拉进「连接中」。
@@ -306,6 +308,7 @@ app/src/main/java/com/a2heng/opencode/mobile/
 - **`~` = 服务端 HOME**（`GET /api/location` 的 directory），**`/` = 真实文件系统根**。不要再造 rootfs/symlink 虚拟根：opencode v2 的 `readDirectoryEntries` 把 symlink 归为 `SymbolicLink`，服务端会直接过滤掉，虚拟根永远是空的。
 - 目录显示用 `pathLabel(base, fsDir)`：`fsDir` 是当前目录，`base` 是宿主的 `fsRootOverride`（没有就是 `/`）；**不要**用服务端每次返回的 `location` 当根，否则路径永远显示 `/`、上一级立刻失效。
 - **路径统一 `/`**：所有服务端路径（`location.directory`、`entry.path`、会话 `directory`、`homeDir`）都过 `Models.kt` 的 `normPath`；Windows 服务端给的是 `D:\a\b`，不转的话 `substringBeforeLast('/')` 切不开，「上一级」在文件页和新建会话弹窗里都会原地不动。`C:` → 上一级给 `C:/`，到 `C:/` 停。
+- **相对路径必须补全**：正文/工具里的路径不一定以 `/` 开头（`src/main.kt`）。`AppModel.resolvePath()` 按「当前会话目录 → HOME → 文件页根」补成绝对路径，`Markdown.resolveFileRef` 同样兜底；`/api/fs/read` 直接收相对路径会按服务端 cwd 解析，表现为打不开或打开错文件。文件页的 `parentDir` / 新建会话的 `sessionParentDir` 也要先 `normPath`，相对 `fsDir` 先补到基准根再切父目录。
 - 列目录返回的 `entry.path` 相对**当前目录**，拼绝对路径要用 `fsDir`（不是固定根）。
 - 目录行右侧固定两个图标按钮：**上一级**（`ArrowUpward`，到根目录时禁用）和**新建文件夹**（`CreateNewFolder`，弹名字对话框，走服务端 shell `mkdir -p`，建完自动刷新）。
 - 新建会话对话框：上一级的根固定为真实 `/`（不随服务端返回的 location 变化），`~` = HOME，`/` 胶囊 = `HOME/workspace`（真 Android 根不能当项目，会卡住选择器）。`~` 里的最近目录仍可正常列出；确认时 `expandSessionDir` 会把 `/` 兜底成 workspace。`browseDirs` 只展开 `~`，不再劫持 `/`。

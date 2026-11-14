@@ -136,6 +136,7 @@ data: {"id":"evt_...","created":...,"type":"session.text.delta","data":{...}}
 - 创建会话的 `location.directory` 不要用 `/`：opencode 会把它当项目并可能递归 watch。规范项目根是 `<HOME>/workspace`。
 - **Windows 服务端**（`opencode serve` 跑在 Windows 上）返回的路径是反斜杠：`location.directory` = `D:\a\b`、`entry.path` = `sub\`。客户端必须统一成 `/`（`Models.kt` 的 `normPath`），否则 `substringBeforeLast('/')` 找不到分隔符，「上一级」会原地踏步、显示也会乱。
 - Windows 上 `normPath` 之后 `/` 是盘符根（`C:` 的根）；再上一级要把 `C:` 归一成 `C:/`，到 `C:/` 就停。
+- **相对路径**：工具/正文里常见 `src/main.kt`，客户端要先补成绝对路径（会话目录 → HOME → 文件页根，见 `AppModel.resolvePath` 和 `Markdown.resolveFileRef`）。`/api/fs/read/{path}` 直接收相对路径时会按服务端的 cwd 解析，轻则 404、重则打开错文件；`/api/fs/list` 虽然接受绝对目录，但 `entry.path` 仍是相对 location，拼接时不要重复加根。
 
 `GET /api/location` → `{ directory, project }`，用作「~」显示的根。
 

@@ -381,6 +381,21 @@ fun normPath(raw: String): String {
     return if (unc) "/$s" else s
 }
 
+/** 绝对路径：`/...`、Windows 盘符 `C:/...` 或 UNC（已由 normPath 转成 `//...`）。 */
+fun isAbsolutePath(path: String): Boolean {
+    val p = normPath(path)
+    return p.startsWith("/") || Regex("^[A-Za-z]:/").containsMatchIn(p)
+}
+
+/** 把服务端返回的相对路径补到基准目录上；已经是绝对路径就原样返回。 */
+fun joinPath(base: String, relative: String): String {
+    val r = normPath(relative)
+    if (r.isBlank()) return normPath(base)
+    if (isAbsolutePath(r)) return r
+    val b = normPath(base).trimEnd('/')
+    return if (b.isBlank()) r else "$b/" + r.trimStart('/')
+}
+
 data class FsEntry(val path: String, val type: String) {
     val name: String get() = path.trimEnd('/').substringAfterLast('/').ifBlank { path }
     val isDir: Boolean get() = type == "directory"

@@ -57,6 +57,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.FsEntry
+import com.a2heng.opencode.mobile.data.isAbsolutePath
+import com.a2heng.opencode.mobile.data.joinPath
+import com.a2heng.opencode.mobile.data.normPath
 
 @Composable
 fun FilesScreen(model: AppModel, wide: Boolean = false) {
@@ -273,12 +276,11 @@ private fun FsListPane(model: AppModel) {
     }
 }
 
-private fun fullPath(root: String, relative: String): String =
-    root.trimEnd('/') + "/" + relative.trimStart('/')
+private fun fullPath(root: String, relative: String): String = joinPath(root, relative)
 
 private fun isUnder(base: String, path: String): Boolean {
-    val b = base.trimEnd('/')
-    val p = path.trimEnd('/')
+    val b = normPath(base).trimEnd('/')
+    val p = normPath(path).trimEnd('/')
     if (b.isEmpty()) return true
     return p == b || p.startsWith("$b/")
 }
@@ -288,8 +290,14 @@ private fun isRootPath(p: String): Boolean =
     p.isEmpty() || p == "/" || Regex("^[A-Za-z]:$").matches(p)
 
 private fun parentDir(current: String, base: String): String? {
-    val b = base.trimEnd('/')
-    val cur = current.trimEnd('/')
+    val b = normPath(base).trimEnd('/')
+    var cur = normPath(current).trimEnd('/')
+    // 相对路径（不以 / 或盘符开头）先补到基准根：否则 substringBeforeLast('/')
+    // 只会截掉一段，表现为「上一级」点了没反应或路径显示不全。
+    if (cur.isNotEmpty() && !isAbsolutePath(cur)) {
+        cur = if (b.isNotEmpty()) joinPath(b, cur) else "/" + cur.trimStart('/')
+        cur = cur.trimEnd('/')
+    }
     // 已经是根（"/" 或 Windows 的 "C:/"）就没有上一级
     if (isRootPath(cur) || cur == b) return null
     if (b.isNotEmpty() && !isUnder(b, cur)) return null
@@ -304,8 +312,8 @@ private fun parentDir(current: String, base: String): String? {
 
 /** Ruta visible: relativa a la raiz; la propia raiz se muestra como "/". */
 private fun pathLabel(base: String, dir: String): String {
-    val b = base.trimEnd('/')
-    val d = dir.trimEnd('/')
+    val b = normPath(base).trimEnd('/')
+    val d = normPath(dir).trimEnd('/')
     return when {
         d.isBlank() -> "/"
         b.isNotEmpty() && d == b -> "/"

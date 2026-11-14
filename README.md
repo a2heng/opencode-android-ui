@@ -7,6 +7,11 @@
 局域网 [opencode](https://opencode.ai) 的原生 Android 客户端：Kotlin + Jetpack Compose，
 界面完全自绘，**直连** `http://<你的电脑>:42000`，不需要中转服务。
 
+## 兄弟项目
+
+- [Adia](https://github.com/a2heng/android-dev-in-android) — 本机客户端：opencode 后端、Termux/proot 运行时和 Compose 界面都在同一个 APK 里，离线可用。
+- **OpenCode 安卓 UI**（本项目）— 局域网客户端：直连电脑上的 opencode，界面代码与 Adia 同源。
+
 ## 安装
 
 1. 从 [Releases](https://github.com/a2heng/opencode-android-ui/releases) 下载 `opencode-android-ui-x.y.z.apk`（CI 签名）。
@@ -105,7 +110,8 @@ Adia 只需启动本机 opencode 服务，然后调用
 
 - Markdown 暂不支持表格与嵌套列表；附件只支持图片。
 - 消息没有游标分页，超长会话首屏会慢；缓存页只取最近 20 个会话。
-- 退到后台 SSE 会断开，回前台自动重连；没有推送。
+- 退到后台有前台保活通知保持 SSE；被系统回收后回前台自动重连，但**没有推送**。
+- 连接页会记住真正连通过的地址和密码（本机 Base64，不上传），可下拉回填。
 - 平板 / 横屏还没有专门布局。
 
 ## License

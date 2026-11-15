@@ -85,7 +85,8 @@ adb -s 192.168.0.101:34049 install -r app/build/outputs/apk/debug/app-debug.apk
 - 竖屏进入要**有动画**（从右侧滑入 + 圆角），离开用预测式返回、**不要淡化**，滑动幅度要大（当前 `translationX = 0.85 * width`，scale 0.10）。
 - **宽屏（宽 ≥ 600dp）不走覆盖**：会话页直接是「左列表 + 右聊天」双栏，聊天在右栏里，不整页盖住列表（见 §4.10）。
 - 顶栏返回 / 展开按钮要有**按钮背景**（`FilledTonalIconButton`，40dp，与输入区左右按钮同尺寸）；图标 20dp。
-- 键盘跟随列表滚动：`ChatScreen` 用 `snapshotFlow(listState.firstVisibleItemIndex)` 判断方向；往更早翻（index 增大）时 `keyboard.hide()`，往回翻或 `!canScrollBackward`（到底）时 `show()`。只对已聚焦的输入框生效，并用 `imeHiddenByScroll` 区分「我们收起的」和用户手动关掉的；系统 IME 高度由系统控制，**不能逐像素跟手**（要跟手只能自绘输入法）。
+- 键盘跟随用户手势（不要监听 `liveText`/消息变化）：`ChatScreen` 在列表 Box 上用 `pointerInput` 的 `Initial` pass 被动读手指轨迹（不消费，LazyColumn 照常滚动）。**只有底部附近起手的手势才控制键盘**：`firstVisibleItemIndex == 0 && offset <= viewport` 或 `index == 1`；中部起手完全不碰，否则看历史时键盘会被切来切去。把「内容 + 键盘」看成一个整体：**手指往上**（`totalY < -threshold` 且 `canScrollBackward`/已离开底部）→ `keyboard.show()`；**手指往下**（`totalY > threshold`）→ `keyboard.hide()`。回答结束/流式内容变化都不会动键盘；系统 IME 高度由系统控制，**不能逐像素跟手**。
+- 不在底部时**冻结 live 气泡**（`frozenLive` 存住 text/reasoning），否则流式文字不断改变底部 item 高度，会把用户正在看的行顶下去；回到底部自动解冻。队列自动滚到底也只在 `!canScrollBackward`（本来就在底部）时执行。
 
 ### 4.4 打开会话（标签页 / 卷帘）
 

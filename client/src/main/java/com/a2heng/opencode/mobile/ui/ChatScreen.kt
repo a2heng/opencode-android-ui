@@ -27,6 +27,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -62,7 +64,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -148,6 +149,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -211,27 +218,23 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 键盘跟随消息列表滚动：往下翻（看更早的消息）收起，往回翻/到底部时再出来。
-    // 注意 Android 的 IME 高度由系统控制，只能 show()/hide()，不能真的逐像素跟随手指。
+    // 键盘只跟随「用户手势」：列表一离开底部就收起；只有在底部再往下拉才弹出。
+    // 内容流式增长、程序滚动都不触发，避免正文/工具输出把键盘顶来顶去。
+    // Android 的 IME 高度由系统控制，只能 show()/hide()，不能逐像素跟手。
     val keyboard = LocalSoftwareKeyboardController.current
-    val density = LocalDensity.current
-    val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    var imeHiddenByScroll by remember { mutableStateOf(false) }
-    LaunchedEffect(listState, imeVisible) {
-        if (imeVisible) imeHiddenByScroll = false
-        var lastIndex = listState.firstVisibleItemIndex
-        snapshotFlow { listState.firstVisibleItemIndex to listState.canScrollBackward }
-            .collect { (index, canScrollBackward) ->
-                val delta = index - lastIndex
-                if (delta > 0 && imeVisible && !imeHiddenByScroll) {
-                    keyboard?.hide()
-                    imeHiddenByScroll = true
-                } else if (imeHiddenByScroll && (delta < 0 || !canScrollBackward)) {
-                    keyboard?.show()
-                    imeHiddenByScroll = false
-                }
-                if (delta != 0) lastIndex = index
-            }
+    val composerFocus = remember { FocusRequester() }
+    val atBottom by remember { derivedStateOf { !listState.canScrollBackward } }
+
+    // 不在底部时冻结 live 内容：否则新的文字会不断改变底部 item 的高度，
+    // 把用户正在看的那一行顶下去。回到/滑到底部后自动解冻。
+    var frozenLive by remember(session.id) { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(atBottom, model.sending) {
+        when {
+            !atBottom && frozenLive == null &&
+                (model.sending || model.liveText.isNotBlank() || model.liveReasoning.isNotBlank()) ->
+                frozenLive = model.liveText to model.liveReasoning
+            atBottom || !model.sending -> frozenLive = null
+        }
     }
     val context = LocalContext.current
     val attachments = remember { mutableStateListOf<Attachment>() }
@@ -266,7 +269,8 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     // 只在队列变多时滚到底，队列被取走/撤回时不要来回跳
     var lastQueueSize by remember(session.id) { mutableStateOf(0) }
     LaunchedEffect(model.queue.size) {
-        if (model.queue.size > lastQueueSize && model.queue.isNotEmpty()) {
+        // 只有本来就在底部才跟随队列；正在看历史时不要被新的 pending 拽回去。
+        if (model.queue.size > lastQueueSize && model.queue.isNotEmpty() && !listState.canScrollBackward) {
             listState.animateScrollToItem(0)
         }
         lastQueueSize = model.queue.size
@@ -419,6 +423,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                 onPickCommand = { showCommands = true; model.loadMeta(session.directory) },
                 onRemoveAttachment = { attachments.removeAt(it) },
                 onStop = { confirmStop = true },
+                focusRequester = composerFocus,
                 onSend = {
                     val text = input.trim()
                     if (text.isNotEmpty() || attachments.isNotEmpty()) {
@@ -521,7 +526,53 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
             } else {
                 // 瀑布流和 Pending 分开：Pending 固定在输入框上方，不参与消息列表滚动
                 Column(Modifier.fillMaxSize()) {
-                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .pointerInput(Unit) {
+                                // 只观察、不消费：Initial pass 读手指轨迹，列表滚动仍然由 LazyColumn 自己处理。
+                                val threshold = 28.dp.toPx()
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(
+                                        requireUnconsumed = false,
+                                        pass = PointerEventPass.Initial,
+                                    )
+                                    // 只在「底部附近」起手的滑动才控制键盘：
+                                    // 1) 最新一条（index 0）且没往上滚超过一屏，或
+                                    // 2) 还在倒数第二条（index 1）。
+                                    // 中部起手的滑动完全不碰键盘，避免看历史时被切来切去。
+                                    val viewport = listState.layoutInfo.viewportSize.height.coerceAtLeast(1)
+                                    val startedNearBottom = (listState.firstVisibleItemIndex == 0 &&
+                                        listState.firstVisibleItemScrollOffset <= viewport) ||
+                                        listState.firstVisibleItemIndex == 1
+                                    var lastY = down.position.y
+                                    var totalY = 0f
+                                    var shown = false
+                                    var hidden = false
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        totalY += change.position.y - lastY
+                                        lastY = change.position.y
+                                        // 把「内容 + 键盘」看成一个整体：
+                                        // 手指往上（内容往上滚、已经离开底部）-> 键盘跟着出来；
+                                        // 手指往下（内容往下滚）-> 键盘跟着收起。
+                                        if (startedNearBottom) {
+                                            if (!shown && totalY < -threshold && listState.canScrollBackward) {
+                                                shown = true
+                                                runCatching { composerFocus.requestFocus() }
+                                                keyboard?.show()
+                                            } else if (!hidden && totalY > threshold) {
+                                                hidden = true
+                                                keyboard?.hide()
+                                            }
+                                        }
+                                        if (change.changedToUpIgnoreConsumed() || !change.pressed) break
+                                    }
+                                }
+                            },
+                    ) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
@@ -533,11 +584,16 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                                 if (model.detailLevel == "compact") 4.dp else 10.dp,
                             ),
                         ) {
-                            if (model.liveReasoning.isNotBlank() || model.liveText.isNotBlank() || model.sending) {
+                            val liveText = frozenLive?.first ?: model.liveText
+                            val liveReasoning = frozenLive?.second ?: model.liveReasoning
+                            if (frozenLive != null || liveReasoning.isNotBlank() || liveText.isNotBlank() || model.sending) {
                                 item(key = "live") {
                                     LiveBubble(
                                         model,
                                         model.detailLevel,
+                                        text = liveText,
+                                        reasoning = liveReasoning,
+                                        sending = frozenLive == null && model.sending,
                                         onOpenReasoning = { reasoningView = ReasoningView(it, live = true) },
                                         onOpenPath = openPath,
                                     )
@@ -580,7 +636,7 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
                                 }
                             }
                         }
-                        if (listState.firstVisibleItemIndex > 2) {
+                        if (!atBottom) {
                             SmallScrollToBottom(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -968,6 +1024,7 @@ private fun ChatComposer(
     onRemoveAttachment: (Int) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    focusRequester: FocusRequester,
     footer: @Composable () -> Unit = {},
 ) {
     var actionsOpen by rememberSaveable { mutableStateOf(false) }
@@ -1144,6 +1201,7 @@ private fun ChatComposer(
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .focusRequester(focusRequester)
                                 .padding(end = if (value.isEmpty()) 0.dp else 24.dp),
                             decorationBox = { inner ->
                                 Box {
@@ -2488,16 +2546,19 @@ private fun Footer(msg: Msg) {
 private fun LiveBubble(
     model: AppModel,
     detail: String,
+    text: String = model.liveText,
+    reasoning: String = model.liveReasoning,
+    sending: Boolean = model.sending,
     onOpenReasoning: (String) -> Unit = {},
     onOpenPath: ((String) -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxWidth()) {
-        if (model.liveReasoning.isNotBlank()) {
-            ReasoningBlock(model.liveReasoning, detail, live = true, onOpenReasoning = onOpenReasoning)
+        if (reasoning.isNotBlank()) {
+            ReasoningBlock(reasoning, detail, live = true, onOpenReasoning = onOpenReasoning)
         }
-        if (model.liveText.isNotBlank()) {
-            AssistantText(model.liveText, onOpenPath)
-        } else if (model.sending) {
+        if (text.isNotBlank()) {
+            AssistantText(text, onOpenPath)
+        } else if (sending) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
                 Spacer(Modifier.width(8.dp))

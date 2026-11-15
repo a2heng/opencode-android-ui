@@ -5,15 +5,15 @@ plugins {
 
 // ---------------------------------------------------------------------------
 // 版本：只用语义化版本，不要日期序号。
-//   本地默认 0.4.6 / 406；CI 从 tag（v0.4.6）推导后通过 -PomVersionName/-PomVersionCode 传入。
-//   versionCode = major*10000 + minor*100 + patch（0.4.6 → 406）。
+//   本地默认 0.4.7 / 407；CI 从 tag（v0.4.7）推导后通过 -PomVersionName/-PomVersionCode 传入。
+//   versionCode = major*10000 + minor*100 + patch（0.4.7 → 407）。
 // ---------------------------------------------------------------------------
 fun envValue(name: String): String? = System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
 
 val omVersionName: String =
-    (findProperty("omVersionName") as String?) ?: envValue("OM_VERSION_NAME") ?: "0.4.6"
+    (findProperty("omVersionName") as String?) ?: envValue("OM_VERSION_NAME") ?: "0.4.7"
 val omVersionCode: Int =
-    ((findProperty("omVersionCode") as String?) ?: envValue("OM_VERSION_CODE") ?: "406").toInt()
+    ((findProperty("omVersionCode") as String?) ?: envValue("OM_VERSION_CODE") ?: "407").toInt()
 
 // ---------------------------------------------------------------------------
 // release 签名：凭据一律走环境变量，keystore 放在仓库外。

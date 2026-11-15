@@ -581,8 +581,39 @@ class OcClient(rawBase: String, private val password: String) {
         fun normalize(input: String): String {
             var s = input.trim()
             if (s.isEmpty()) return "http://127.0.0.1:42000"
-            if (!s.startsWith("http://") && !s.startsWith("https://")) s = "http://$s"
+            val lower = s.lowercase()
+            if (!lower.startsWith("http://") && !lower.startsWith("https://")) s = "http://$s"
             return s.trimEnd('/')
+        }
+
+        /**
+         * opencode serve 默认是纯 HTTP。用户把地址填成 https:// 时，TLS 握手会报
+         * 「Unable to parse TLS packet header」。只在**私有局域网地址**、并且错误
+         * 明确是「对方不是 TLS」时才降级到 http，公网/证书错误一律不降级。
+         */
+        fun plainHttpFallback(url: String, error: Throwable): String? {
+            if (!url.startsWith("https://", ignoreCase = true)) return null
+            val msg = (error.message ?: "").lowercase()
+            val plain = msg.contains("parse tls packet header") ||
+                msg.contains("tls packet") ||
+                msg.contains("plaintext") ||
+                msg.contains("not an ssl")
+            if (!plain) return null
+            val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase() ?: return null
+            if (!isPrivateHost(host)) return null
+            return "http://" + url.substring("https://".length)
+        }
+
+        private fun isPrivateHost(host: String): Boolean {
+            val h = host.trim('[', ']')
+            if (h == "localhost" || h.endsWith(".local")) return true
+            if (h == "127.0.0.1" || h.startsWith("127.")) return true
+            val p = h.split('.')
+            if (p.size != 4) return false
+            val a = p[0].toIntOrNull() ?: return false
+            val b = p[1].toIntOrNull() ?: return false
+            if (p.any { it.toIntOrNull() !in 0..255 }) return false
+            return a == 10 || (a == 172 && b in 16..31) || (a == 192 && b == 168)
         }
 
         fun urlEncode(s: String): String =

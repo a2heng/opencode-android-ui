@@ -240,7 +240,7 @@ fun ConnectScreen(model: AppModel) {
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    "提示：手机与电脑需在同一局域网；服务端启动参数 --hostname 0.0.0.0。",
+                    "提示：手机与电脑需在同一局域网；服务端启动参数 --hostname 0.0.0.0。opencode serve 默认是 http://（不启用 TLS），不要填 https://。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

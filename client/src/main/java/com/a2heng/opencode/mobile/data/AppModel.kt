@@ -567,9 +567,26 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         connectJob?.cancel()
         connectJob = viewModelScope.launch {
             try {
-                val c = OcClient(normalized, pwd)
-                val info = withContext(Dispatchers.IO) { c.ping() } as? JsonObject
-                serverUrl = normalized
+                var target = normalized
+                var c = OcClient(target, pwd)
+                val info = try {
+                    withContext(Dispatchers.IO) { c.ping() } as? JsonObject
+                } catch (e: Exception) {
+                    // opencode serve 默认是 http://；https:// 打到纯 HTTP 端口时会报
+                    // "Unable to parse TLS packet header"。只对私有地址做一次安全降级。
+                    val fallback = OcClient.plainHttpFallback(target, e)
+                    if (fallback == null) throw e
+                    target = fallback
+                    c = OcClient(target, pwd)
+                    val retried = withContext(Dispatchers.IO) { c.ping() } as? JsonObject
+                    Toast.makeText(
+                        getApplication(),
+                        "服务端是 http，已自动改用 $target",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    retried
+                }
+                serverUrl = target
                 password = pwd
                 client = c
                 serverVersion = info?.str("version") ?: ""
@@ -579,9 +596,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 connecting = false
                 hadConnected = true
                 if (remember) {
-                    prefs.edit().putString("url", normalized).putString("password", pwd).apply()
+                    prefs.edit().putString("url", target).putString("password", pwd).apply()
                     // 只有真正连上才进「已保存」，避免把打错的地址留在列表里
-                    rememberConnection(normalized, pwd)
+                    rememberConnection(target, pwd)
                 }
                 retryJob?.cancel()
                 retryDelay = 5_000L

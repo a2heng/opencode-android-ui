@@ -1,3 +1,5 @@
+> **已归档。** 本仓库的 UI 已并入 [a2heng/androc](https://github.com/a2heng/androc) 的 `:ui` 模块；这里不再维护。
+
 # OpenCode 安卓 UI
 
 [![CI](https://github.com/a2heng/opencode-android-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/a2heng/opencode-android-ui/actions/workflows/ci.yml)

@@ -1,4 +1,4 @@
-> **已归档。** 本仓库的 UI 已并入 [a2heng/androc](https://github.com/a2heng/androc) 的 `:ui` 模块；这里不再维护。
+> **本仓库不再维护。** UI 已并入 [a2heng/androc](https://github.com/a2heng/androc) 的 `:ui` 模块；新项目不再依赖这里。
 
 # OpenCode 安卓 UI
 
